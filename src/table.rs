@@ -50,12 +50,7 @@ impl Table {
         let vars: Vec<Var> = vars.into_iter().collect();
         assert!(!vars.is_empty(), "a table needs at least one variable");
 
-        let mut sorted = vars.clone();
-        sorted.sort_unstable();
-        assert!(
-            sorted.windows(2).all(|pair| pair[0] != pair[1]),
-            "a table lists a variable twice"
-        );
+        crate::assert_distinct(&vars, "a table lists a variable twice");
 
         let mut flat = Vec::new();
         for tuple in tuples {

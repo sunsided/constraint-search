@@ -81,15 +81,15 @@ impl VariableSubset {
             .collect();
 
         for_each_combination(candidates.len(), self.size, |chosen| {
-            let subset: Vec<Var> = chosen.iter().map(|&i| candidates[i]).collect();
-            let values = subset
+            let in_subset = |var: &Var| chosen.iter().any(|&i| candidates[i] == *var);
+            let values = chosen
                 .iter()
-                .fold(D::empty(), |union, &var| union.union(domains[var]));
+                .fold(D::empty(), |union, &i| union.union(domains[candidates[i]]));
             if values.len() as usize != self.size {
                 return Ok(());
             }
 
-            for &var in group.iter().filter(|var| !subset.contains(var)) {
+            for &var in group.iter().filter(|var| !in_subset(var)) {
                 domains.remove_all(var, values)?;
             }
 
@@ -182,9 +182,10 @@ impl ValueSubset {
         }
 
         let candidates = self.candidate_values(group, domains);
+        let mut holders: Vec<Var> = Vec::with_capacity(self.size * self.size);
         for_each_combination(candidates.len(), self.size, |chosen| {
             let mut values = D::empty();
-            let mut holders: Vec<Var> = Vec::new();
+            holders.clear();
             for (value, positions) in chosen.iter().map(|&i| &candidates[i]) {
                 values.insert(*value);
                 for var in positions {
@@ -214,9 +215,7 @@ impl ValueSubset {
         domains: &Domains<D>,
     ) -> Vec<(u32, Vec<Var>)> {
         let counts = 1..=self.size;
-        let union = group
-            .iter()
-            .fold(D::empty(), |union, &var| union.union(domains[var]));
+        let union = domains.union_of(group);
 
         union
             .values()
@@ -253,11 +252,7 @@ impl<D: Domain> Rule<D> for ValueSubset {
 /// Returns `true` if the variables of `group` can together take exactly as many values as
 /// there are variables, so that every value must be used.
 pub(super) fn is_permutation<D: Domain>(group: &[Var], domains: &Domains<D>) -> bool {
-    let union = group
-        .iter()
-        .fold(D::empty(), |union, &var| union.union(domains[var]));
-
-    union.len() as usize == group.len()
+    domains.union_of(group).len() as usize == group.len()
 }
 
 /// Collects the groups of a rule constructor into owned vectors.

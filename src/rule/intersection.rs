@@ -73,9 +73,7 @@ impl GroupIntersection {
             return Ok(());
         }
 
-        let union = inner
-            .iter()
-            .fold(D::empty(), |union, &var| union.union(domains[var]));
+        let union = domains.union_of(inner);
         for value in union.values() {
             let confined = inner
                 .iter()

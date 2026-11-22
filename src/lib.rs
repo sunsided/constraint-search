@@ -105,6 +105,18 @@ pub use search::{
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;
 
+/// Panics with `message` if `items` holds an element twice. Constructors use it to reject
+/// scopes that list a variable, cell or column more than once.
+#[track_caller]
+pub(crate) fn assert_distinct<T: Ord + Clone>(items: &[T], message: &str) {
+    let mut sorted = items.to_vec();
+    sorted.sort_unstable();
+    assert!(
+        sorted.windows(2).all(|pair| pair[0] != pair[1]),
+        "{message}"
+    );
+}
+
 /// Doctests for the code examples in README.md (not part of the API).
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
