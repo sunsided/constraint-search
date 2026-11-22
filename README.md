@@ -10,6 +10,27 @@
 
 Finite-domain constraint satisfaction in Rust: variables with small domains, constraints that prune them, and search for the assignments that remain.
 
+## Who this is for
+
+- Puzzle generators and solvers (Sudoku and its variants, nonograms, Minesweeper, Kakuro,
+  logic grids): uniqueness checks stop at the second solution, and the human-style rules
+  grade difficulty by the costliest technique a solve needs and give the next hint step.
+- Tutoring, hint and explainable configuration tools, and small scheduling or allocation
+  models: rules carry names, and `Trace::why_removed` says which deduction ruled a value
+  out, so "why can't I choose this?" has an answer next to the solution.
+- Game AI with hidden information, such as card locations or unrevealed Minesweeper cells:
+  the backbone gives the certain facts, marginals the probability of each value, and
+  sampling draws consistent hidden states to plan with, without enumerating worlds by hand.
+- Embedded and `no_std` users: the core needs only `alloc`, and parallel search is an
+  opt-in `std` feature.
+- For large industrial models, optimisation objectives or huge domains, use
+  [OR-Tools CP-SAT](https://developers.google.com/optimization), [Gecode](https://www.gecode.org/)
+  or a MIP solver. For search over the moves of an adversarial game, use
+  [game-tree-search](https://github.com/sunsided/game-tree-search); for shortest paths and
+  state-space search with costs, [heuristic-search](https://github.com/sunsided/heuristic-search);
+  for planning when the outcomes of actions are uncertain, rather than facts hidden,
+  [stochastic-search](https://github.com/sunsided/stochastic-search).
+
 ## Scope
 
 - Finite-domain variables with bitset domains and a trail for undoing changes on backtrack
@@ -24,7 +45,7 @@ Finite-domain constraint satisfaction in Rust: variables with small domains, con
   value's probability (marginals), and random solutions to sample hidden information
 - Exact cover with dancing links
 
-Typical uses are logic puzzles (Sudoku and its variants, nonograms, KenKen, Kakuro, logic grids, cryptarithms), Minesweeper and card-location deduction, map colouring, timetabling and small scheduling problems. Adversarial games belong in [game-tree-search](https://github.com/sunsided/game-tree-search), and path finding in [heuristic-search](https://github.com/sunsided/heuristic-search).
+Typical uses are logic puzzles (Sudoku and its variants, nonograms, KenKen, Kakuro, logic grids, cryptarithms), Minesweeper and card-location deduction, map colouring, timetabling and small scheduling problems.
 
 ## Usage
 
