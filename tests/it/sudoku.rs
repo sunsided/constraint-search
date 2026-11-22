@@ -135,6 +135,23 @@ fn heuristics_agree_on_hard_puzzle() {
     );
 }
 
+/// A uniqueness check hinted with the known solution searches less than an unhinted one.
+#[test]
+fn hint_speeds_up_uniqueness_checks() {
+    let sudoku = Sudoku::new(3);
+    let mut solver = sudoku.solver_for(ESCARGOT);
+    let plain = solver.count(2, unlimited);
+    let Outcome::Solved(solution) = solver.solve(unlimited).outcome else {
+        panic!("solvable")
+    };
+
+    solver.set_hint(&solution);
+    let hinted = solver.count(2, unlimited);
+    assert_eq!(hinted.outcome, Count::Exact(1));
+    assert_eq!(plain.outcome, hinted.outcome);
+    assert!(hinted.stats.failures <= plain.stats.failures);
+}
+
 /// Reset returns to the empty grid, so one solver serves many puzzles.
 #[test]
 fn reset_reuses_the_solver() {

@@ -75,6 +75,16 @@ fn warmed_up_solves_do_not_allocate() {
     });
     assert_eq!(unique, 0, "uniqueness check");
 
+    let Outcome::Solved(solution) = solver.solve(unlimited).outcome else {
+        panic!("solvable")
+    };
+    solver.set_hint(&solution);
+    let hinted = allocations_after_warm_up(|| {
+        load(&mut solver, ESCARGOT);
+        assert_eq!(solver.count(2, unlimited).outcome, Count::Exact(1));
+    });
+    assert_eq!(hinted, 0, "hinted uniqueness check");
+
     let mut lcv = Solver::new(&model).with_value_order(ValueOrder::Lcv);
     let ordered = allocations_after_warm_up(|| {
         load(&mut lcv, ESCARGOT);

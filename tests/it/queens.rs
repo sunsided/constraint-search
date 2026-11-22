@@ -134,5 +134,5 @@ fn exact_cover_agrees() {
         }
     }
 
-    assert_eq!(problem.count(u64::MAX), Count::Exact(92));
+    assert_eq!(problem.count(u64::MAX, unlimited).outcome, Count::Exact(92));
 }

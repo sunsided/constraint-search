@@ -8,7 +8,9 @@
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
-use crate::Count;
+use search_core::Budget;
+
+use crate::{Count, Outcome, Report, Stats, Status};
 
 /// An exact cover problem: columns to cover and rows that each cover some of them.
 ///
@@ -22,14 +24,15 @@ use crate::Count;
 /// Knuth's example from the dancing links paper, with its single solution:
 ///
 /// ```
-/// use constraint_search::ExactCover;
+/// use constraint_search::{ExactCover, Outcome, Stats};
 ///
 /// let mut problem = ExactCover::new(7, 0);
 /// for row in [&[2, 4, 5][..], &[0, 3, 6], &[1, 2, 5], &[0, 3], &[1, 6], &[3, 4, 6]] {
 ///     problem.add_row(row);
 /// }
 ///
-/// assert_eq!(problem.solve(), Some(vec![0, 3, 4]));
+/// let report = problem.solve(|_: &Stats| false);
+/// assert_eq!(report.outcome, Outcome::Solved(vec![0, 3, 4]));
 /// ```
 #[derive(Debug, Clone)]
 pub struct ExactCover {
@@ -41,6 +44,8 @@ pub struct ExactCover {
     sizes: Vec<usize>,
     /// The number of rows added.
     rows: usize,
+    /// The rows chosen so far by the running search; kept for its capacity between searches.
+    chosen: Vec<usize>,
 }
 
 /// One node of the four-way linked structure.
@@ -91,6 +96,7 @@ impl ExactCover {
             sizes: alloc::vec![0; columns + 1],
             nodes,
             rows: 0,
+            chosen: Vec::new(),
         }
     }
 
@@ -149,29 +155,40 @@ impl ExactCover {
         self.rows
     }
 
-    /// One solution: the chosen rows in ascending order, or `None` if there is none.
-    #[must_use]
-    pub fn solve(&mut self) -> Option<Vec<usize>> {
+    /// One solution: the chosen rows in ascending order.
+    pub fn solve(&mut self, budget: impl Budget<Stats>) -> Report<Outcome<Vec<usize>>> {
         let mut found = None;
-        self.for_each_solution(|rows| {
+        let report = self.for_each_solution(budget, |rows| {
             let mut rows = rows.to_vec();
             rows.sort_unstable();
             found = Some(rows);
             ControlFlow::Break(())
         });
 
-        found
+        let outcome = match (report.outcome, found) {
+            (_, Some(rows)) => Outcome::Solved(rows),
+            (Status::Exhausted, None) => Outcome::Exhausted,
+            (_, None) => Outcome::Unsatisfiable,
+        };
+
+        Report {
+            outcome,
+            stats: report.stats,
+        }
     }
 
     /// Counts solutions, stopping at `limit`; a limit of 2 decides uniqueness. A limit of 0
     /// searches nothing and reports `Count::AtLeast(0)`.
-    pub fn count(&mut self, limit: u64) -> Count {
+    pub fn count(&mut self, limit: u64, budget: impl Budget<Stats>) -> Report<Count> {
         if limit == 0 {
-            return Count::AtLeast(0);
+            return Report {
+                outcome: Count::AtLeast(0),
+                stats: Stats::default(),
+            };
         }
 
         let mut solutions = 0;
-        let complete = self.for_each_solution(|_| {
+        let report = self.for_each_solution(budget, |_| {
             solutions += 1;
             if solutions >= limit {
                 ControlFlow::Break(())
@@ -180,52 +197,97 @@ impl ExactCover {
             }
         });
 
-        if complete {
-            Count::Exact(solutions)
-        } else {
-            Count::AtLeast(solutions)
+        let outcome = match report.outcome {
+            Status::Complete => Count::Exact(solutions),
+            Status::Stopped | Status::Exhausted => Count::AtLeast(solutions),
+        };
+
+        Report {
+            outcome,
+            stats: report.stats,
         }
     }
 
     /// Calls `on_solution` with the rows of every solution, in the order they were chosen,
-    /// until it returns [`ControlFlow::Break`]. Returns `true` if every solution was reported.
+    /// until it returns [`ControlFlow::Break`], the budget stops the search or the search
+    /// ends.
+    ///
+    /// The budget is consulted before each search node. [`Stats::failures`] counts dead ends:
+    /// a primary column that no remaining row covers. Searching restores the links, and
+    /// reuses its buffers across calls.
     pub fn for_each_solution(
         &mut self,
+        mut budget: impl Budget<Stats>,
         mut on_solution: impl FnMut(&[usize]) -> ControlFlow<()>,
-    ) -> bool {
-        let mut chosen = Vec::new();
-        self.search(&mut chosen, &mut on_solution).is_continue()
-    }
-
-    /// Algorithm X below the current state, with `chosen` the rows picked so far.
-    fn search(
-        &mut self,
-        chosen: &mut Vec<usize>,
-        on_solution: &mut impl FnMut(&[usize]) -> ControlFlow<()>,
-    ) -> ControlFlow<()> {
-        let Some(column) = self.fewest_rows() else {
-            return on_solution(chosen);
+    ) -> Report<Status> {
+        let mut chosen = core::mem::take(&mut self.chosen);
+        chosen.clear();
+        let mut search = Search {
+            budget: &mut budget,
+            on_solution: &mut on_solution,
+            chosen: &mut chosen,
+            stats: Stats::default(),
         };
 
+        let outcome = match self.search(&mut search) {
+            ControlFlow::Continue(()) => Status::Complete,
+            ControlFlow::Break(Stop::Caller) => Status::Stopped,
+            ControlFlow::Break(Stop::Budget) => Status::Exhausted,
+        };
+
+        let stats = search.stats;
+        self.chosen = chosen;
+        Report { outcome, stats }
+    }
+
+    /// Algorithm X below the current state.
+    fn search<B, F>(&mut self, search: &mut Search<'_, B, F>) -> ControlFlow<Stop>
+    where
+        B: Budget<Stats>,
+        F: FnMut(&[usize]) -> ControlFlow<()>,
+    {
+        if search.budget.exhausted(&search.stats) {
+            return ControlFlow::Break(Stop::Budget);
+        }
+
+        search.stats.nodes += 1;
+        let Some(column) = self.fewest_rows() else {
+            search.stats.solutions += 1;
+            return (search.on_solution)(search.chosen).map_break(|()| Stop::Caller);
+        };
+
+        if self.sizes[column] == 0 {
+            search.stats.failures += 1;
+            return ControlFlow::Continue(());
+        }
+
         self.cover(column);
+        let result = self.try_rows(column, search);
+        self.uncover(column);
+
+        result
+    }
+
+    /// Tries each row covering the already covered `column`, searching below each.
+    fn try_rows<B, F>(&mut self, column: usize, search: &mut Search<'_, B, F>) -> ControlFlow<Stop>
+    where
+        B: Budget<Stats>,
+        F: FnMut(&[usize]) -> ControlFlow<()>,
+    {
         let mut node = self.nodes[column].down;
         while node != column {
-            chosen.push(self.nodes[node].row);
+            search.chosen.push(self.nodes[node].row);
             self.for_row(node, |this, other| this.cover(this.nodes[other].column));
 
-            let result = self.search(chosen, on_solution);
+            let result = self.search(search);
 
             self.for_row_back(node, |this, other| this.uncover(this.nodes[other].column));
-            chosen.pop();
-            if result.is_break() {
-                self.uncover(column);
-                return result;
-            }
+            search.chosen.pop();
+            result?;
 
             node = self.nodes[node].down;
         }
 
-        self.uncover(column);
         ControlFlow::Continue(())
     }
 
@@ -304,11 +366,36 @@ impl ExactCover {
     }
 }
 
+/// Why a search stopped before exhausting its space.
+enum Stop {
+    /// The solution callback asked to stop.
+    Caller,
+    /// The budget ran out.
+    Budget,
+}
+
+/// One running search: its budget, callback, chosen rows and counters.
+struct Search<'s, B, F> {
+    /// Decides when to stop early.
+    budget: &'s mut B,
+    /// Receives each solution.
+    on_solution: &'s mut F,
+    /// The rows chosen on the path to the current node.
+    chosen: &'s mut Vec<usize>,
+    /// The counters so far.
+    stats: Stats,
+}
+
 /// Unit tests for [`ExactCover`].
 #[cfg(test)]
 mod tests {
     use super::ExactCover;
-    use crate::Count;
+    use crate::{Count, Outcome, Stats};
+
+    /// A budget that never stops the search.
+    fn unlimited(_: &Stats) -> bool {
+        false
+    }
 
     /// N-queens with rows and columns primary and diagonals secondary.
     fn queens(n: usize) -> ExactCover {
@@ -328,26 +415,55 @@ mod tests {
     /// The classic queens counts, which exercise secondary columns.
     #[test]
     fn queens_counts() {
-        assert_eq!(queens(6).count(u64::MAX), Count::Exact(4));
-        assert_eq!(queens(8).count(u64::MAX), Count::Exact(92));
-        assert_eq!(queens(3).count(u64::MAX), Count::Exact(0));
+        assert_eq!(
+            queens(6).count(u64::MAX, unlimited).outcome,
+            Count::Exact(4)
+        );
+        assert_eq!(
+            queens(8).count(u64::MAX, unlimited).outcome,
+            Count::Exact(92)
+        );
+        assert_eq!(
+            queens(3).count(u64::MAX, unlimited).outcome,
+            Count::Exact(0)
+        );
     }
 
     /// Searching restores the structure, so repeated counts agree, and limits stop early.
     #[test]
     fn search_restores_links() {
         let mut problem = queens(6);
-        assert_eq!(problem.count(0), Count::AtLeast(0));
-        assert_eq!(problem.count(2), Count::AtLeast(2));
-        assert_eq!(problem.count(u64::MAX), Count::Exact(4));
-        assert!(problem.solve().is_some());
+        assert_eq!(problem.count(0, unlimited).outcome, Count::AtLeast(0));
+        assert_eq!(problem.count(2, unlimited).outcome, Count::AtLeast(2));
+        assert_eq!(problem.count(u64::MAX, unlimited).outcome, Count::Exact(4));
+        assert!(matches!(
+            problem.solve(unlimited).outcome,
+            Outcome::Solved(_)
+        ));
         assert_eq!(problem.num_rows(), 36);
+    }
+
+    /// A budget stops the search after the nodes it allows, and the links are restored.
+    #[test]
+    fn budget_stops_the_search() {
+        let mut problem = queens(8);
+        let tight = |stats: &Stats| stats.nodes >= 10;
+
+        let count = problem.count(u64::MAX, tight);
+        assert!(matches!(count.outcome, Count::AtLeast(_)));
+        assert_eq!(count.stats.nodes, 10);
+        assert_eq!(problem.solve(|_: &Stats| true).outcome, Outcome::Exhausted);
+        assert!(queens(3).count(u64::MAX, unlimited).stats.failures > 0);
+        assert_eq!(problem.count(u64::MAX, unlimited).outcome, Count::Exact(92));
     }
 
     /// With no primary column, the empty selection is the one solution.
     #[test]
     fn nothing_to_cover() {
-        assert_eq!(ExactCover::new(0, 2).solve(), Some(alloc::vec![]));
+        assert_eq!(
+            ExactCover::new(0, 2).solve(unlimited).outcome,
+            Outcome::Solved(alloc::vec![])
+        );
     }
 
     /// A row naming a column twice is rejected.

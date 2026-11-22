@@ -34,10 +34,13 @@ pub struct Stats {
 }
 
 /// How a search ended.
+///
+/// `T` is the solution: the value of every variable for a [`Solver`], the chosen rows for an
+/// [`ExactCover`](crate::ExactCover).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    /// A solution: the value of every variable, in index order.
-    Solved(Vec<u32>),
+pub enum Outcome<T = Vec<u32>> {
+    /// A solution: for a [`Solver`], the value of every variable in index order.
+    Solved(T),
     /// The search space is exhausted: no solution exists.
     Unsatisfiable,
     /// The budget stopped the search first.
@@ -148,6 +151,8 @@ pub struct Solver<'m, D> {
     phase: Phase,
     /// The trail level of the domains when the search began.
     base_level: usize,
+    /// A value per variable to try first when branching on it; empty for none.
+    hint: Vec<u32>,
     /// How to pick the variable to branch on.
     var_order: VarOrder,
     /// How to order the values of that variable.
@@ -168,6 +173,7 @@ impl<'m, D: Domain> Solver<'m, D> {
             frames: Vec::new(),
             phase: Phase::Idle,
             base_level: 0,
+            hint: Vec::new(),
             var_order: VarOrder::default(),
             value_order: ValueOrder::default(),
         };
@@ -188,6 +194,33 @@ impl<'m, D: Domain> Solver<'m, D> {
     pub fn with_value_order(mut self, order: ValueOrder) -> Self {
         self.value_order = order;
         self
+    }
+
+    /// Tries `values[i]` first whenever the search branches on variable `i`, then the other
+    /// values in the [`ValueOrder`]. A hint value no longer in the domain is skipped.
+    ///
+    /// Give a known solution as the hint to find it first: a generator that digs clues out of
+    /// a solved puzzle checks uniqueness with [`Solver::count`] and a limit of 2, and the hint
+    /// turns finding the first solution into a straight walk, leaving only the search for a
+    /// second. The hint stays set across searches and [`Solver::reset`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `values` does not hold exactly one value per variable of the model.
+    pub fn set_hint(&mut self, values: &[u32]) {
+        assert_eq!(
+            values.len(),
+            self.model.num_vars(),
+            "a hint needs one value per variable"
+        );
+
+        self.hint.clear();
+        self.hint.extend_from_slice(values);
+    }
+
+    /// Removes the hint set by [`Solver::set_hint`].
+    pub fn clear_hint(&mut self) {
+        self.hint.clear();
     }
 
     /// Returns to the model's initial domains, keeping every allocation. Abandons a search in
@@ -402,6 +435,36 @@ mod tests {
         let _ = solver.domains_mut();
         assert!(!solver.is_searching());
         assert_eq!(solver.domains().level(), 0);
+    }
+
+    /// A hint leads the search straight to the hinted solution, without changing counts.
+    #[test]
+    fn hint_is_tried_first() {
+        let model = permutations();
+        let mut solver = Solver::new(&model);
+        solver.set_hint(&[2, 0, 1]);
+
+        let report = solver.solve(|_: &Stats| false);
+        assert_eq!(report.outcome, Outcome::Solved(alloc::vec![2, 0, 1]));
+        assert_eq!(report.stats.failures, 0);
+        assert_eq!(
+            solver.count(u64::MAX, |_: &Stats| false).outcome,
+            Count::Exact(6)
+        );
+
+        solver.clear_hint();
+        assert_eq!(
+            solver.solve(|_: &Stats| false).outcome,
+            Outcome::Solved(alloc::vec![0, 1, 2])
+        );
+    }
+
+    /// A hint must cover every variable.
+    #[test]
+    #[should_panic(expected = "one value per variable")]
+    fn short_hint_panics() {
+        let model = permutations();
+        Solver::new(&model).set_hint(&[0]);
     }
 
     /// Changes the search makes, its root propagation included, are undone however it ends,
