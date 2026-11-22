@@ -54,7 +54,9 @@ impl<D: Domain> Solver<'_, D> {
     /// Starts a resumable search from the current domains, abandoning any search in progress.
     ///
     /// Drive it with [`Solver::resume`]. Until it completes or is abandoned, the domains
-    /// belong to the search: [`Solver::domains_mut`] and [`Solver::reset`] abandon it.
+    /// belong to the search: [`Solver::domains_mut`], [`Solver::reset`] and
+    /// [`Solver::propagate`] abandon it, and [`Solver::solve`], [`Solver::count`] and
+    /// [`Solver::for_each_solution`] abandon it to run a search of their own.
     ///
     /// # Examples
     ///
@@ -85,6 +87,8 @@ impl<D: Domain> Solver<'_, D> {
     pub fn begin(&mut self) {
         self.abandon();
         self.base_level = self.domains.level();
+        // Everything the search changes, its root propagation included, sits above this level.
+        self.domains.push_level();
         self.phase = Phase::Start;
     }
 
@@ -137,9 +141,8 @@ impl<D: Domain> Solver<'_, D> {
         }
     }
 
-    /// Opens the root level and propagates the starting domains.
+    /// Propagates the starting domains, on the level [`Solver::begin`] pushed.
     fn start(&mut self, stats: &mut Stats) -> Option<Progress> {
-        self.domains.push_level();
         if self.engine.fixpoint(self.model, &mut self.domains).is_err() {
             stats.nodes += 1;
             return Some(self.finish());
