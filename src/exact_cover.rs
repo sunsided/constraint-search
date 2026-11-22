@@ -163,8 +163,13 @@ impl ExactCover {
         found
     }
 
-    /// Counts solutions, stopping at `limit`; a limit of 2 decides uniqueness.
+    /// Counts solutions, stopping at `limit`; a limit of 2 decides uniqueness. A limit of 0
+    /// searches nothing and reports `Count::AtLeast(0)`.
     pub fn count(&mut self, limit: u64) -> Count {
+        if limit == 0 {
+            return Count::AtLeast(0);
+        }
+
         let mut solutions = 0;
         let complete = self.for_each_solution(|_| {
             solutions += 1;
@@ -332,6 +337,7 @@ mod tests {
     #[test]
     fn search_restores_links() {
         let mut problem = queens(6);
+        assert_eq!(problem.count(0), Count::AtLeast(0));
         assert_eq!(problem.count(2), Count::AtLeast(2));
         assert_eq!(problem.count(u64::MAX), Count::Exact(4));
         assert!(problem.solve().is_some());

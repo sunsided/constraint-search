@@ -213,8 +213,16 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// Counts solutions, stopping at `limit`.
     ///
     /// A limit of 2 decides uniqueness: `Count::Exact(1)` means exactly one solution, and
-    /// `Count::AtLeast(2)` more than one.
+    /// `Count::AtLeast(2)` more than one. A limit of 0 searches nothing and reports
+    /// `Count::AtLeast(0)`.
     pub fn count(&mut self, limit: u64, budget: impl Budget<Stats>) -> Report<Count> {
+        if limit == 0 {
+            return Report {
+                outcome: Count::AtLeast(0),
+                stats: Stats::default(),
+            };
+        }
+
         let mut solutions = 0;
         let report = self.for_each_solution(budget, |_| {
             solutions += 1;
@@ -312,10 +320,12 @@ where
 
     /// Searches below the current, propagated domains.
     fn node(&mut self) -> ControlFlow<Stop> {
-        self.stats.nodes += 1;
+        // Consult the budget before charging the node, so `nodes` counts nodes examined.
         if self.budget.exhausted(&self.stats) {
             return ControlFlow::Break(Stop::Budget);
         }
+
+        self.stats.nodes += 1;
 
         let solver = &*self.solver;
         let Some(var) = solver.var_order.pick(&solver.domains) else {
@@ -396,6 +406,27 @@ mod tests {
 
         assert_eq!(report.outcome, Outcome::Exhausted);
         assert_eq!(report.stats.solutions, 0);
+    }
+
+    /// A one-node budget still examines that node, so an already solved problem is solved.
+    #[test]
+    fn budget_counts_examined_nodes() {
+        let mut model = Model::<u16>::new();
+        model.add_var(0b100);
+        let report = Solver::new(&model).solve(|stats: &Stats| stats.nodes >= 1);
+
+        assert_eq!(report.outcome, Outcome::Solved(alloc::vec![2]));
+        assert_eq!(report.stats.nodes, 1);
+    }
+
+    /// A zero limit searches nothing.
+    #[test]
+    fn zero_limit_searches_nothing() {
+        let model = permutations();
+        let report = Solver::new(&model).count(0, |_: &Stats| false);
+
+        assert_eq!(report.outcome, Count::AtLeast(0));
+        assert_eq!(report.stats.nodes, 0);
     }
 
     /// A count stops at its limit and reports a lower bound.
