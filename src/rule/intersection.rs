@@ -138,5 +138,6 @@ mod tests {
             ],
         );
         assert_eq!(rule.pairs, []);
+        assert_eq!(Rule::<u16>::name(&rule), "intersection");
     }
 }

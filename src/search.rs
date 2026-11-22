@@ -370,3 +370,56 @@ const _: () = {
     const fn sendable<T: Send>() {}
     sendable::<Solver<'static, u64>>();
 };
+
+/// Unit tests for the stopping paths of [`Solver`].
+#[cfg(test)]
+mod tests {
+    use core::ops::ControlFlow;
+
+    use super::{Count, Outcome, Solver, Stats, Status};
+    use crate::{AllDifferent, Domain, Model};
+
+    /// Three variables over three values, all different: six solutions.
+    fn permutations() -> Model<u16> {
+        let mut model = Model::new();
+        let vars = model.add_vars(3, u16::range(3));
+        model.add(AllDifferent::new(vars));
+
+        model
+    }
+
+    /// A budget that runs out before the first solution makes `solve` report exhaustion.
+    #[test]
+    fn solve_reports_exhausted_budget() {
+        let model = permutations();
+        let report = Solver::new(&model).solve(|stats: &Stats| stats.nodes >= 1);
+
+        assert_eq!(report.outcome, Outcome::Exhausted);
+        assert_eq!(report.stats.solutions, 0);
+    }
+
+    /// A count stops at its limit and reports a lower bound.
+    #[test]
+    fn count_stops_at_limit() {
+        let model = permutations();
+        let report = Solver::new(&model).count(4, |_: &Stats| false);
+
+        assert_eq!(report.outcome, Count::AtLeast(4));
+        assert_eq!(report.stats.solutions, 4);
+    }
+
+    /// Enumeration reports whether the callback or the search space ended it.
+    #[test]
+    fn enumeration_status() {
+        let model = permutations();
+        let mut solver = Solver::new(&model);
+
+        let stopped = solver.for_each_solution(|_: &Stats| false, |_| ControlFlow::Break(()));
+        let complete = solver.for_each_solution(|_: &Stats| false, |_| ControlFlow::Continue(()));
+        assert_eq!(stopped.outcome, Status::Stopped);
+        assert_eq!(
+            (complete.outcome, complete.stats.solutions),
+            (Status::Complete, 6)
+        );
+    }
+}

@@ -283,6 +283,17 @@ mod tests {
         assert!(rules.step(&mut domains, true).unwrap().is_some());
     }
 
+    /// The set reports its size and hands out its rules.
+    #[test]
+    fn sizes() {
+        let mut rules = Rules::<u16>::default();
+        assert!(rules.is_empty());
+
+        rules.add(DropZero(0, false));
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules.get(0).name(), "drop zero");
+    }
+
     /// An unsolved trace has no grade; one that needed no step grades zero.
     #[test]
     fn grade_needs_a_solve() {

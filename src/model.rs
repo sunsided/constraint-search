@@ -122,3 +122,50 @@ const _: () = {
     const fn shareable<T: Send + Sync>() {}
     shareable::<Model<u64>>();
 };
+
+/// Unit tests for [`Model`].
+#[cfg(test)]
+mod tests {
+    use alloc::vec::Vec;
+
+    use super::Model;
+    use crate::{Domains, Inconsistent, Propagator, Var};
+
+    /// Lists its one variable twice, to check that the watch list holds it once.
+    struct Twice([Var; 2]);
+
+    impl Propagator<u16> for Twice {
+        fn scope(&self) -> &[Var] {
+            &self.0
+        }
+
+        fn propagate(&self, _: &mut Domains<u16>) -> Result<(), Inconsistent> {
+            Ok(())
+        }
+    }
+
+    /// A variable repeated in a scope wakes its propagator once.
+    #[test]
+    fn repeated_scope_var_is_watched_once() {
+        let mut model = Model::<u16>::default();
+        let x = model.add_var(0b11);
+        model.add(Twice([x, x]));
+
+        assert_eq!(model.watchers(x), [0]);
+        assert_eq!(model.num_vars(), 1);
+        assert_eq!(model.propagators().len(), 1);
+        assert_eq!(
+            model.propagators()[0].propagate(&mut Domains::new()),
+            Ok(())
+        );
+    }
+
+    /// A scope naming a variable from elsewhere is rejected when the constraint is added.
+    #[test]
+    #[should_panic(expected = "only holds variables of this model")]
+    fn foreign_var_panics() {
+        let mut model = Model::<u16>::new();
+        let vars: Vec<Var> = model.add_vars(1, 0b1);
+        model.add(Twice([vars[0], Var::new(5)]));
+    }
+}

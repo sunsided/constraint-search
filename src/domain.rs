@@ -353,6 +353,10 @@ mod tests {
         let mut domain = u16::range(3);
         domain.remove(40);
         assert_eq!(domain, 0b111);
+
+        let mut wide = BitSet::<1>::range(3);
+        wide.remove(64);
+        assert_eq!(wide.len(), 3);
     }
 
     /// Inserting a value beyond the capacity panics rather than wrapping the shift.

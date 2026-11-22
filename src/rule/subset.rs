@@ -338,10 +338,30 @@ mod tests {
     /// Each size reports its own technique name.
     #[test]
     fn names() {
-        let naked = NakedSubset::new(3, 0, [Vec::<Var>::new()]);
-        let hidden = HiddenSubset::new(5, 0, [Vec::<Var>::new()]);
-
-        assert_eq!(Rule::<u16>::name(&naked), "naked triple");
-        assert_eq!(Rule::<u16>::name(&hidden), "hidden subset");
+        let naked = [
+            "naked single",
+            "naked pair",
+            "naked triple",
+            "naked quad",
+            "naked subset",
+        ];
+        let hidden = [
+            "hidden single",
+            "hidden pair",
+            "hidden triple",
+            "hidden quad",
+            "hidden subset",
+        ];
+        for (size, (naked, hidden)) in (1..).zip(naked.into_iter().zip(hidden)) {
+            let groups = [Vec::<Var>::new()];
+            assert_eq!(
+                Rule::<u16>::name(&NakedSubset::new(size, 0, groups.clone())),
+                naked
+            );
+            assert_eq!(
+                Rule::<u16>::name(&HiddenSubset::new(size, 0, groups)),
+                hidden
+            );
+        }
     }
 }

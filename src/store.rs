@@ -359,4 +359,19 @@ mod tests {
         domains.drain_modified(|var| woken.push(var));
         assert_eq!(woken, vec![x]);
     }
+
+    /// Sizes, levels and the error message.
+    #[test]
+    fn accessors() {
+        let mut domains = Domains::<u16>::default();
+        assert!(domains.is_empty());
+
+        domains.add(0b1);
+        domains.push_level();
+        assert_eq!((domains.len(), domains.level()), (1, 1));
+        assert_eq!(
+            alloc::format!("{Inconsistent}"),
+            "the constraints cannot be satisfied"
+        );
+    }
 }
