@@ -8,8 +8,8 @@
 use std::ops::ControlFlow;
 
 use constraint_search::{
-    AllDifferent, Count, Domain, Domains, HiddenSubset, Intersection, Model, NakedSubset, Outcome,
-    Progress, Rules, Solver, Stats, Table, Var,
+    AllDifferent, Count, Domain, Domains, GroupIntersection, Model, Outcome, Progress, Rules,
+    Solver, Stats, Table, ValueSubset, Var, VariableSubset,
 };
 
 /// The number of values each variable may take at most: domains are subsets of `0..VALUES`.
@@ -121,11 +121,11 @@ impl Csp {
         let groups = self.groups();
         let mut rules = Rules::new();
         for size in 1..=3 {
-            rules.add(NakedSubset::new(size, 0, groups.clone()));
-            rules.add(HiddenSubset::new(size, 0, groups.clone()));
+            rules.add(VariableSubset::new(size, 0, groups.clone()));
+            rules.add(ValueSubset::new(size, 0, groups.clone()));
         }
 
-        rules.add(Intersection::new(0, groups));
+        rules.add(GroupIntersection::new(0, groups));
 
         let mut domains = Domains::new();
         for &domain in &self.domains {

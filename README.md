@@ -61,8 +61,8 @@ assert_eq!(report.outcome, Outcome::Solved(vec![0, 2, 1, 2, 1, 0, 1, 0, 2]));
 ```
 
 Custom constraints implement [`Propagator`]; [`Table`] lists allowed tuples for small ones.
-For human-style solving, [`Rules`] applies costed techniques ([`NakedSubset`],
-[`HiddenSubset`], [`Intersection`] or your own [`Rule`]), cheapest first. Each step can serve
+For human-style solving, [`Rules`] applies costed techniques ([`VariableSubset`],
+[`ValueSubset`], [`GroupIntersection`] or your own [`Rule`]), cheapest first. Each step can serve
 as a hint, and the most expensive rule a solve needed grades the puzzle.
 
 [`Model`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Model.html
@@ -71,9 +71,9 @@ as a hint, and the most expensive rule a solve needed grades the puzzle.
 [`Table`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Table.html
 [`Rules`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Rules.html
 [`Rule`]: https://docs.rs/constraint-search/latest/constraint_search/trait.Rule.html
-[`NakedSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.NakedSubset.html
-[`HiddenSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.HiddenSubset.html
-[`Intersection`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Intersection.html
+[`VariableSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.VariableSubset.html
+[`ValueSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.ValueSubset.html
+[`GroupIntersection`]: https://docs.rs/constraint-search/latest/constraint_search/struct.GroupIntersection.html
 
 The crate is `no_std` and needs `alloc`. The `parallel` feature (which needs `std`) adds
 `ParallelSolver`: the search tree split across threads, or a portfolio of branching

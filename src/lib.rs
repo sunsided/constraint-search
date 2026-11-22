@@ -87,7 +87,7 @@ pub use model::Model;
 #[cfg(feature = "parallel")]
 pub use parallel::ParallelSolver;
 pub use propagator::Propagator;
-pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
+pub use rule::{GroupIntersection, Rule, Rules, Step, Trace, ValueSubset, VariableSubset};
 pub use search::{Count, Outcome, Progress, Report, Solver, Stats, Status, ValueOrder, VarOrder};
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;

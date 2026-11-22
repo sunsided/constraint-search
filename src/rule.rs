@@ -5,8 +5,8 @@
 //! them ordered by cost and always applies the cheapest one that makes progress, so a solve
 //! reads like a person's, and the most expensive rule it needed grades the puzzle.
 //!
-//! The crate ships rules for all-different groups: [`NakedSubset`], [`HiddenSubset`] and
-//! [`Intersection`]. Puzzle-specific patterns implement [`Rule`] themselves.
+//! The crate ships rules for all-different groups: [`VariableSubset`], [`ValueSubset`] and
+//! [`GroupIntersection`]. Puzzle-specific patterns implement [`Rule`] themselves.
 
 mod intersection;
 mod subset;
@@ -15,8 +15,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::{Domain, Domains, Inconsistent, Var};
-pub use intersection::Intersection;
-pub use subset::{HiddenSubset, NakedSubset};
+pub use intersection::GroupIntersection;
+pub use subset::{ValueSubset, VariableSubset};
 
 /// A named deduction technique with a cost.
 ///
@@ -95,7 +95,7 @@ impl<D> Trace<D> {
 /// # Examples
 ///
 /// ```
-/// use constraint_search::{Domain, Domains, HiddenSubset, NakedSubset, Rules};
+/// use constraint_search::{Domain, Domains, ValueSubset, VariableSubset, Rules};
 ///
 /// // One row of four cells over the values 0..4, with two cells already given.
 /// let mut domains = Domains::<u16>::new();
@@ -104,12 +104,12 @@ impl<D> Trace<D> {
 /// domains.assign(row[1], 1)?;
 ///
 /// let mut rules = Rules::new();
-/// rules.add(NakedSubset::new(1, 1, [row.clone()]));
-/// rules.add(HiddenSubset::new(1, 2, [row.clone()]));
+/// rules.add(VariableSubset::new(1, 1, [row.clone()]));
+/// rules.add(ValueSubset::new(1, 2, [row.clone()]));
 ///
 /// let trace = rules.solve(&mut domains, false)?;
 /// assert!(!trace.solved); // cells 2 and 3 can still swap values 2 and 3
-/// assert_eq!(rules.get(trace.steps[0].rule).name(), "naked single");
+/// assert_eq!(rules.get(trace.steps[0].rule).name(), "variable single");
 /// # Ok::<(), constraint_search::Inconsistent>(())
 /// ```
 pub struct Rules<D> {

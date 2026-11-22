@@ -1,28 +1,36 @@
-//! Subset rules over all-different groups: [`NakedSubset`] and [`HiddenSubset`].
+//! Subset rules over all-different groups: [`VariableSubset`] and [`ValueSubset`], the
+//! Hall-set reasoning a person does by hand (Sudoku calls them naked and hidden subsets).
 
 use alloc::vec::Vec;
 
 use crate::{Domain, Domains, Inconsistent, Rule, Var};
 
-/// `k` variables of a group whose domains together hold only `k` values use up those values,
-/// so no other variable of the group can take them.
+/// `k` variables of an all-different group whose domains together hold only `k` values use
+/// up those values, so no other variable of the group can take them.
 ///
-/// Size 1 is the *naked single* (a fixed variable's value leaves its group), size 2 the
-/// *naked pair*, then *triple* and *quad*. Each group is an all-different scope. The rule
-/// considers only variables with at most `size` values left, and for sizes above 1 only
-/// unfixed ones, so each size reports its own technique.
+/// Size 1 is a fixed variable whose value leaves the rest of its group. The rule considers
+/// only variables with at most `size` values left, and for sizes above 1 only unfixed ones,
+/// so each size reports its own technique. It is sound for every all-different group,
+/// whether or not the group must use all its values.
+///
+/// Default names are "variable single", "variable pair", "variable triple", "variable quad"
+/// and "variable subset"; [`VariableSubset::with_name`] sets a domain's own term. Sudoku
+/// players call these *naked singles, pairs, triples and quads*; in a logic-grid puzzle it is
+/// "these two people own the only two remaining pets".
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NakedSubset {
+pub struct VariableSubset {
     /// The number of variables in the subset. At least 1.
     size: usize,
     /// The rule's [`Rule::cost`].
     cost: u32,
     /// The all-different groups the rule searches.
     groups: Vec<Vec<Var>>,
+    /// The rule's [`Rule::name`].
+    name: &'static str,
 }
 
-impl NakedSubset {
-    /// The naked subset rule of `size` variables over `groups`, costing `cost`.
+impl VariableSubset {
+    /// The subset rule of `size` variables over `groups`, costing `cost`.
     ///
     /// # Panics
     ///
@@ -35,11 +43,28 @@ impl NakedSubset {
     ) -> Self {
         assert!(size > 0, "a subset needs at least one variable");
 
+        let name = [
+            "variable single",
+            "variable pair",
+            "variable triple",
+            "variable quad",
+        ]
+        .get(size - 1)
+        .copied()
+        .unwrap_or("variable subset");
         Self {
             size,
             cost,
             groups: collect_groups(groups),
+            name,
         }
+    }
+
+    /// Names the rule in a domain's own terms, such as "naked pair" for Sudoku.
+    #[must_use]
+    pub fn with_name(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
     }
 
     /// Applies the rule to one group.
@@ -73,15 +98,9 @@ impl NakedSubset {
     }
 }
 
-impl<D: Domain> Rule<D> for NakedSubset {
-    fn name(&self) -> &'static str {
-        match self.size {
-            1 => "naked single",
-            2 => "naked pair",
-            3 => "naked triple",
-            4 => "naked quad",
-            _ => "naked subset",
-        }
+impl<D: Domain> Rule<D> for VariableSubset {
+    fn name(&self) -> &str {
+        self.name
     }
 
     fn cost(&self) -> u32 {
@@ -95,27 +114,32 @@ impl<D: Domain> Rule<D> for NakedSubset {
     }
 }
 
-/// `k` values that only `k` variables of a group can still take must go to those variables,
-/// so those variables can take no other value.
+/// `k` values that only `k` variables of an all-different group can still take must go to
+/// those variables, so those variables can take no other value.
 ///
-/// Size 1 is the *hidden single*, then *hidden pair*, *triple* and *quad*.
+/// **Only sound where every value must be used:** groups whose variables together can take
+/// exactly as many values as there are variables (a permutation), as in a Sudoku row or a
+/// logic-grid attribute. Other groups are skipped. In `x ∈ {1, 2, 3}, y ∈ {1, 2}` only `x`
+/// can take 3, yet `x = 1, y = 2` is a solution. Card-location and hidden-identity problems
+/// are often not permutations; model them so that they are, or rely on [`VariableSubset`].
 ///
-/// The rule is sound only where every value must be used: groups whose variables together
-/// can take exactly as many values as there are variables, as in a Sudoku row. Other groups
-/// are skipped. (In `x ∈ {1, 2, 3}, y ∈ {1, 2}` only `x` can take 3, yet `x = 1, y = 2` is a
-/// solution.)
+/// Default names are "value single", "value pair", "value triple", "value quad" and "value
+/// subset"; [`ValueSubset::with_name`] sets a domain's own term. Sudoku players call these
+/// *hidden singles, pairs, triples and quads*.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HiddenSubset {
+pub struct ValueSubset {
     /// The number of values in the subset. At least 1.
     size: usize,
     /// The rule's [`Rule::cost`].
     cost: u32,
     /// The all-different groups the rule searches.
     groups: Vec<Vec<Var>>,
+    /// The rule's [`Rule::name`].
+    name: &'static str,
 }
 
-impl HiddenSubset {
-    /// The hidden subset rule of `size` values over `groups`, costing `cost`.
+impl ValueSubset {
+    /// The subset rule of `size` values over `groups`, costing `cost`.
     ///
     /// # Panics
     ///
@@ -128,11 +152,23 @@ impl HiddenSubset {
     ) -> Self {
         assert!(size > 0, "a subset needs at least one value");
 
+        let name = ["value single", "value pair", "value triple", "value quad"]
+            .get(size - 1)
+            .copied()
+            .unwrap_or("value subset");
         Self {
             size,
             cost,
             groups: collect_groups(groups),
+            name,
         }
+    }
+
+    /// Names the rule in a domain's own terms, such as "hidden pair" for Sudoku.
+    #[must_use]
+    pub fn with_name(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
     }
 
     /// Applies the rule to one group.
@@ -198,15 +234,9 @@ impl HiddenSubset {
     }
 }
 
-impl<D: Domain> Rule<D> for HiddenSubset {
-    fn name(&self) -> &'static str {
-        match self.size {
-            1 => "hidden single",
-            2 => "hidden pair",
-            3 => "hidden triple",
-            4 => "hidden quad",
-            _ => "hidden subset",
-        }
+impl<D: Domain> Rule<D> for ValueSubset {
+    fn name(&self) -> &str {
+        self.name
     }
 
     fn cost(&self) -> u32 {
@@ -272,7 +302,7 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    use super::{HiddenSubset, NakedSubset, for_each_combination};
+    use super::{ValueSubset, VariableSubset, for_each_combination};
     use crate::{Domains, Rule, Var};
 
     /// A group of variables with the given domains.
@@ -300,11 +330,11 @@ mod tests {
         for_each_combination(1, 2, |_| panic!("no subset of size 2")).unwrap();
     }
 
-    /// A naked pair removes its two values from the rest of the group.
+    /// A variable pair (a naked pair) removes its two values from the rest of the group.
     #[test]
     fn naked_pair() {
         let (mut domains, vars) = group(&[0b0011, 0b0011, 0b0111, 0b1111]);
-        NakedSubset::new(2, 0, [vars.clone()])
+        VariableSubset::new(2, 0, [vars.clone()])
             .apply(&mut domains)
             .unwrap();
 
@@ -312,11 +342,11 @@ mod tests {
         assert_eq!(domains[vars[3]], 0b1100);
     }
 
-    /// A hidden pair strips the other values from its two variables.
+    /// A value pair (a hidden pair) strips the other values from its two variables.
     #[test]
     fn hidden_pair() {
         let (mut domains, vars) = group(&[0b1111, 0b1111, 0b1100, 0b1100]);
-        HiddenSubset::new(2, 0, [vars.clone()])
+        ValueSubset::new(2, 0, [vars.clone()])
             .apply(&mut domains)
             .unwrap();
 
@@ -324,11 +354,11 @@ mod tests {
         assert_eq!(domains[vars[1]], 0b0011);
     }
 
-    /// A hidden pair may include a value only one variable can take.
+    /// A value pair may include a value only one variable can take.
     #[test]
     fn hidden_pair_with_a_single() {
         let (mut domains, vars) = group(&[0b1111, 0b1110, 0b1100, 0b1100]);
-        HiddenSubset::new(2, 0, [vars.clone()])
+        ValueSubset::new(2, 0, [vars.clone()])
             .apply(&mut domains)
             .unwrap();
 
@@ -340,7 +370,7 @@ mod tests {
     #[test]
     fn hidden_single_skips_non_permutation() {
         let (mut domains, vars) = group(&[0b111, 0b011]);
-        HiddenSubset::new(1, 0, [vars.clone()])
+        ValueSubset::new(1, 0, [vars.clone()])
             .apply(&mut domains)
             .unwrap();
 
@@ -350,30 +380,28 @@ mod tests {
     /// Each size reports its own technique name.
     #[test]
     fn names() {
-        let naked = [
-            "naked single",
-            "naked pair",
-            "naked triple",
-            "naked quad",
-            "naked subset",
+        let variable = [
+            "variable single",
+            "variable pair",
+            "variable triple",
+            "variable quad",
         ];
-        let hidden = [
-            "hidden single",
-            "hidden pair",
-            "hidden triple",
-            "hidden quad",
-            "hidden subset",
-        ];
-        for (size, (naked, hidden)) in (1..).zip(naked.into_iter().zip(hidden)) {
+        let value = ["value single", "value pair", "value triple", "value quad"];
+        for (size, (variable, value)) in (1..).zip(variable.into_iter().zip(value)) {
             let groups = [Vec::<Var>::new()];
             assert_eq!(
-                Rule::<u16>::name(&NakedSubset::new(size, 0, groups.clone())),
-                naked
+                Rule::<u16>::name(&VariableSubset::new(size, 0, groups.clone())),
+                variable
             );
-            assert_eq!(
-                Rule::<u16>::name(&HiddenSubset::new(size, 0, groups)),
-                hidden
-            );
+            assert_eq!(Rule::<u16>::name(&ValueSubset::new(size, 0, groups)), value);
         }
+
+        let groups = [Vec::<Var>::new()];
+        assert_eq!(
+            Rule::<u16>::name(&ValueSubset::new(5, 0, groups.clone())),
+            "value subset"
+        );
+        let renamed = VariableSubset::new(2, 0, groups).with_name("naked pair");
+        assert_eq!(Rule::<u16>::name(&renamed), "naked pair");
     }
 }

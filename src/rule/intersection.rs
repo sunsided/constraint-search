@@ -1,4 +1,5 @@
-//! [`Intersection`]: locked candidates between two overlapping all-different groups.
+//! [`GroupIntersection`]: reasoning across two overlapping all-different groups (Sudoku's
+//! locked candidates).
 
 use alloc::vec::Vec;
 
@@ -8,23 +9,27 @@ use crate::{Domain, Domains, Inconsistent, Rule, Var};
 /// A value that group `A` must use, and can only take inside its overlap with group `B`, is
 /// used by that overlap, so the rest of `B` cannot take it.
 ///
-/// In Sudoku this is *pointing* (a block's candidates for a digit lie in one row) and
-/// *claiming* (a row's candidates lie in one block). It applies to any pair of all-different
+/// Sudoku players call this *locked candidates*: *pointing* (a block's candidates for a digit
+/// lie in one row) and *claiming* or *box/line reduction* (a row's candidates lie in one
+/// block). The default name is "group intersection"; [`GroupIntersection::with_name`] sets a
+/// domain's own term. It applies to any pair of all-different
 /// groups that share at least two variables, such as irregular regions or extra diagonals.
-/// Like [`HiddenSubset`](crate::HiddenSubset), it only reasons from groups whose values must
+/// Like [`ValueSubset`](crate::ValueSubset), it only reasons from groups whose values must
 /// all be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Intersection {
+pub struct GroupIntersection {
     /// The rule's [`Rule::cost`].
     cost: u32,
     /// The all-different groups.
     groups: Vec<Vec<Var>>,
-    /// The ordered pairs `(a, b)` of indices into [`Intersection::groups`] whose groups share
+    /// The rule's [`Rule::name`].
+    name: &'static str,
+    /// The ordered pairs `(a, b)` of indices into [`GroupIntersection::groups`] whose groups share
     /// at least two variables.
     pairs: Vec<(usize, usize)>,
 }
 
-impl Intersection {
+impl GroupIntersection {
     /// The intersection rule over `groups`, costing `cost`.
     #[must_use]
     pub fn new<G: IntoIterator<Item = Var>>(
@@ -45,8 +50,16 @@ impl Intersection {
         Self {
             cost,
             groups,
+            name: "group intersection",
             pairs,
         }
+    }
+
+    /// Names the rule in a domain's own terms, such as "pointing pair" for Sudoku.
+    #[must_use]
+    pub fn with_name(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
     }
 
     /// Removes from `outer \ inner` every value that `inner` must use but can only take in
@@ -81,9 +94,9 @@ impl Intersection {
     }
 }
 
-impl<D: Domain> Rule<D> for Intersection {
-    fn name(&self) -> &'static str {
-        "intersection"
+impl<D: Domain> Rule<D> for GroupIntersection {
+    fn name(&self) -> &str {
+        self.name
     }
 
     fn cost(&self) -> u32 {
@@ -97,13 +110,13 @@ impl<D: Domain> Rule<D> for Intersection {
     }
 }
 
-/// Unit tests for [`Intersection`].
+/// Unit tests for [`GroupIntersection`].
 #[cfg(test)]
 mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    use super::Intersection;
+    use super::GroupIntersection;
     use crate::{Domains, Rule, Var};
 
     /// A box of four cells whose value 3 sits only in its top row removes 3 from the rest of
@@ -118,7 +131,7 @@ mod tests {
         let block = vec![cells[0], cells[1], cells[2], cells[3]];
         let row = vec![cells[0], cells[1], cells[4], cells[5]];
 
-        Intersection::new(0, [block, row])
+        GroupIntersection::new(0, [block, row])
             .apply(&mut domains)
             .unwrap();
 
@@ -130,7 +143,7 @@ mod tests {
     /// Groups sharing a single variable form no pair: that case is a hidden single.
     #[test]
     fn single_overlap_is_ignored() {
-        let rule = Intersection::new(
+        let rule = GroupIntersection::new(
             0,
             [
                 vec![Var::new(0), Var::new(1)],
@@ -138,6 +151,6 @@ mod tests {
             ],
         );
         assert_eq!(rule.pairs, []);
-        assert_eq!(Rule::<u16>::name(&rule), "intersection");
+        assert_eq!(Rule::<u16>::name(&rule), "group intersection");
     }
 }

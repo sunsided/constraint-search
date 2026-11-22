@@ -4,7 +4,8 @@
 use std::ops::ControlFlow;
 
 use constraint_search::{
-    AllDifferent, Domains, HiddenSubset, Intersection, Model, NakedSubset, Rules, Solver, Var,
+    AllDifferent, Domains, GroupIntersection, Model, Rules, Solver, ValueSubset, Var,
+    VariableSubset,
 };
 
 use crate::sudoku::Sudoku;
@@ -121,11 +122,11 @@ fn rules_are_sound_beyond_permutations() {
 
         let mut rules = Rules::new();
         for size in 1..=3 {
-            rules.add(NakedSubset::new(size, 0, groups.clone()));
-            rules.add(HiddenSubset::new(size, 0, groups.clone()));
+            rules.add(VariableSubset::new(size, 0, groups.clone()));
+            rules.add(ValueSubset::new(size, 0, groups.clone()));
         }
 
-        rules.add(Intersection::new(0, groups.clone()));
+        rules.add(GroupIntersection::new(0, groups.clone()));
 
         let mut pruned = solver.domains().clone();
         match rules.solve(&mut pruned, false) {
