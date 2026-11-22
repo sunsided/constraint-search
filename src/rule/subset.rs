@@ -170,14 +170,14 @@ impl HiddenSubset {
         })
     }
 
-    /// The values of `group` that `1..=size` unfixed variables can take (exactly one for
-    /// size 1), with those variables.
+    /// The values of `group` that `1..=size` variables can take, at least one of them unfixed,
+    /// with those variables.
     fn candidate_values<D: Domain>(
         &self,
         group: &[Var],
         domains: &Domains<D>,
     ) -> Vec<(u32, Vec<Var>)> {
-        let counts = if self.size == 1 { 1..=1 } else { 2..=self.size };
+        let counts = 1..=self.size;
         let union = group
             .iter()
             .fold(D::empty(), |union, &var| union.union(domains[var]));
@@ -322,6 +322,18 @@ mod tests {
 
         assert_eq!(domains[vars[0]], 0b0011);
         assert_eq!(domains[vars[1]], 0b0011);
+    }
+
+    /// A hidden pair may include a value only one variable can take.
+    #[test]
+    fn hidden_pair_with_a_single() {
+        let (mut domains, vars) = group(&[0b1111, 0b1110, 0b1100, 0b1100]);
+        HiddenSubset::new(2, 0, [vars.clone()])
+            .apply(&mut domains)
+            .unwrap();
+
+        assert_eq!(domains[vars[0]], 0b0011);
+        assert_eq!(domains[vars[1]], 0b0010);
     }
 
     /// Hidden reasoning leaves groups alone whose values need not all be used.
