@@ -6,79 +6,114 @@
 //! (Berge). With matched edges pointing from variable to value and the others from value to
 //! variable, the cycles are the strongly connected components and the paths are what a free
 //! value reaches.
+//!
+//! All buffers live in [`MatchingScratch`] and keep their capacity between runs, so a run
+//! allocates only while the buffers are still growing. Adjacency is stored flat (compressed
+//! rows: `start[node]..start[node + 1]` indexes the neighbours).
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{Domain, Domains, Var};
 
-/// The bipartite graph between the variables of one constraint and the values they may take.
+/// Marks an unmatched variable or value, and an unvisited node.
+const NONE: usize = usize::MAX;
+
+/// Working memory of [`AllDifferent`](crate::AllDifferent), reused across propagation calls.
 ///
 /// Graph nodes `0..n` are the variables, nodes `n..n + m` the values.
-pub(super) struct ValueGraph {
+#[derive(Debug, Default)]
+pub struct MatchingScratch {
     /// The values of the union of the domains, sorted ascending.
     values: Vec<u32>,
-    /// For each variable, the indices into [`ValueGraph::values`] of its domain.
-    edges: Vec<Vec<usize>>,
-    /// For each variable, the value index it is matched to.
-    var_match: Vec<Option<usize>>,
-    /// For each value index, the variable it is matched to.
-    value_match: Vec<Option<usize>>,
+    /// `edges[edge_start[x]..edge_start[x + 1]]` are the value indices in variable `x`'s
+    /// domain. One longer than the number of variables.
+    edge_start: Vec<usize>,
+    /// The value indices of all variables' domains, back to back.
+    edges: Vec<usize>,
+    /// For each variable, the value index it is matched to, or [`NONE`].
+    var_match: Vec<usize>,
+    /// For each value index, the variable it is matched to, or [`NONE`].
+    value_match: Vec<usize>,
+    /// Values visited by the current augmenting-path search.
+    seen: Vec<bool>,
+    /// `successors[successor_start[u]..successor_start[u + 1]]` are the nodes `u` points to.
+    successor_start: Vec<usize>,
+    /// The directed edges' targets, grouped by source node.
+    successors: Vec<usize>,
+    /// The next free slot per source node while filling [`MatchingScratch::successors`].
+    cursor: Vec<usize>,
+    /// Nodes reachable from a free value.
+    reached: Vec<bool>,
+    /// The depth-first stack of the reachability search.
+    stack: Vec<usize>,
+    /// Strongly connected components.
+    tarjan: Tarjan,
+    /// `(variable position, value)` pairs that no maximum matching uses.
+    unsupported: Vec<(usize, u32)>,
 }
 
-impl ValueGraph {
-    /// The graph of `vars` over their current domains.
-    pub(super) fn new<D: Domain>(domains: &Domains<D>, vars: &[Var]) -> Self {
+impl MatchingScratch {
+    /// Builds the graph of `vars` over their current domains.
+    pub(super) fn build<D: Domain>(&mut self, domains: &Domains<D>, vars: &[Var]) {
         let union = vars
             .iter()
             .fold(D::empty(), |union, &var| union.union(domains[var]));
-        let values: Vec<u32> = union.values().collect();
-        let edges = vars
-            .iter()
-            .map(|&var| {
-                domains[var]
-                    .values()
-                    .map(|value| values.binary_search(&value).expect("value is in the union"))
-                    .collect()
-            })
-            .collect();
+        self.values.clear();
+        self.values.extend(union.values());
 
-        Self {
-            var_match: vec![None; vars.len()],
-            value_match: vec![None; values.len()],
-            values,
-            edges,
+        self.edge_start.clear();
+        self.edges.clear();
+        for &var in vars {
+            self.edge_start.push(self.edges.len());
+            for value in domains[var].values() {
+                let index = self.values.binary_search(&value);
+                self.edges.push(index.expect("value is in the union"));
+            }
         }
+
+        self.edge_start.push(self.edges.len());
+        reset(&mut self.var_match, vars.len(), NONE);
+        reset(&mut self.value_match, self.values.len(), NONE);
+    }
+
+    /// The number of variables in the graph.
+    fn vars(&self) -> usize {
+        self.edge_start.len() - 1
+    }
+
+    /// The value indices in the domain of variable `var`.
+    fn edges_of(&self, var: usize) -> core::ops::Range<usize> {
+        self.edge_start[var]..self.edge_start[var + 1]
     }
 
     /// Matches every variable to a distinct value; returns `false` if that is impossible.
     pub(super) fn match_all(&mut self) -> bool {
-        if self.values.len() < self.edges.len() {
+        if self.values.len() < self.vars() {
             return false;
         }
 
-        let mut seen = vec![false; self.values.len()];
-        (0..self.edges.len()).all(|var| {
-            seen.fill(false);
-            self.augment(var, &mut seen)
+        reset(&mut self.seen, self.values.len(), false);
+        (0..self.vars()).all(|var| {
+            self.seen.fill(false);
+            self.augment(var)
         })
     }
 
-    /// Finds an augmenting path from the unmatched `var`, skipping the values in `seen`.
+    /// Finds an augmenting path from the unmatched `var`, skipping the values already seen.
     ///
     /// Recursion depth is at most the number of variables.
-    fn augment(&mut self, var: usize, seen: &mut [bool]) -> bool {
-        for position in 0..self.edges[var].len() {
-            let value = self.edges[var][position];
-            if seen[value] {
+    fn augment(&mut self, var: usize) -> bool {
+        for position in self.edges_of(var) {
+            let value = self.edges[position];
+            if self.seen[value] {
                 continue;
             }
 
-            seen[value] = true;
+            self.seen[value] = true;
             let owner = self.value_match[value];
-            if owner.is_none_or(|owner| self.augment(owner, seen)) {
-                self.var_match[var] = Some(value);
-                self.value_match[value] = Some(var);
+            if owner == NONE || self.augment(owner) {
+                self.var_match[var] = value;
+                self.value_match[value] = var;
                 return true;
             }
         }
@@ -87,90 +122,104 @@ impl ValueGraph {
     }
 
     /// The `(variable position, value)` pairs that no maximum matching uses, after
-    /// [`ValueGraph::match_all`] succeeded.
-    pub(super) fn unsupported(&self) -> Vec<(usize, u32)> {
-        let successors = self.successors();
-        let component = components(&successors);
-        let reached = self.reached_from_free(&successors);
-        let vars = self.edges.len();
+    /// [`MatchingScratch::match_all`] succeeded.
+    pub(super) fn unsupported(&mut self) -> &[(usize, u32)] {
+        self.build_successors();
+        self.reach_from_free();
+        self.tarjan.run(&self.successor_start, &self.successors);
 
-        let mut unsupported = Vec::new();
-        for (var, values) in self.edges.iter().enumerate() {
-            for &value in values {
+        let vars = self.vars();
+        self.unsupported.clear();
+        for var in 0..vars {
+            for position in self.edges_of(var) {
+                let value = self.edges[position];
                 let node = vars + value;
-                let used = self.var_match[var] == Some(value)
+                let component = &self.tarjan.component;
+                let used = self.var_match[var] == value
                     || component[var] == component[node]
-                    || reached[node];
+                    || self.reached[node];
                 if !used {
-                    unsupported.push((var, self.values[value]));
+                    self.unsupported.push((var, self.values[value]));
                 }
             }
         }
 
-        unsupported
+        &self.unsupported
     }
 
     /// The directed graph: matched edges from variable to value, the others reversed.
-    fn successors(&self) -> Vec<Vec<usize>> {
-        let vars = self.edges.len();
-        let mut successors = vec![Vec::new(); vars + self.values.len()];
-        for (var, values) in self.edges.iter().enumerate() {
-            for &value in values {
-                if self.var_match[var] == Some(value) {
-                    successors[var].push(vars + value);
-                } else {
-                    successors[vars + value].push(var);
-                }
+    fn build_successors(&mut self) {
+        let vars = self.vars();
+        let nodes = vars + self.values.len();
+        reset(&mut self.successor_start, nodes + 1, 0);
+        for var in 0..vars {
+            for position in self.edges_of(var) {
+                let (from, _) = self.direct(var, self.edges[position]);
+                self.successor_start[from + 1] += 1;
             }
         }
 
-        successors
+        for node in 1..=nodes {
+            self.successor_start[node] += self.successor_start[node - 1];
+        }
+
+        reset(&mut self.successors, self.successor_start[nodes], 0);
+        self.cursor.clear();
+        self.cursor
+            .extend_from_slice(&self.successor_start[..nodes]);
+        for var in 0..vars {
+            for position in self.edges_of(var) {
+                let (from, to) = self.direct(var, self.edges[position]);
+                self.successors[self.cursor[from]] = to;
+                self.cursor[from] += 1;
+            }
+        }
+    }
+
+    /// The direction of the edge between `var` and value index `value`, as `(from, to)` nodes.
+    fn direct(&self, var: usize, value: usize) -> (usize, usize) {
+        let node = self.vars() + value;
+        if self.var_match[var] == value {
+            (var, node)
+        } else {
+            (node, var)
+        }
     }
 
     /// Marks every node reachable from a value that no variable is matched to.
-    fn reached_from_free(&self, successors: &[Vec<usize>]) -> Vec<bool> {
-        let vars = self.edges.len();
-        let mut reached = vec![false; successors.len()];
-        let mut stack: Vec<usize> = (0..self.values.len())
-            .filter(|&value| self.value_match[value].is_none())
-            .map(|value| vars + value)
-            .collect();
-
-        while let Some(node) = stack.pop() {
-            if !reached[node] {
-                reached[node] = true;
-                stack.extend(successors[node].iter().filter(|&&next| !reached[next]));
+    fn reach_from_free(&mut self) {
+        let vars = self.vars();
+        reset(&mut self.reached, self.successor_start.len() - 1, false);
+        self.stack.clear();
+        for value in 0..self.values.len() {
+            if self.value_match[value] == NONE {
+                self.stack.push(vars + value);
             }
         }
 
-        reached
-    }
-}
+        while let Some(node) = self.stack.pop() {
+            if self.reached[node] {
+                continue;
+            }
 
-/// The strongly connected component of each node, by an iterative Tarjan's algorithm.
-fn components(successors: &[Vec<usize>]) -> Vec<usize> {
-    let mut tarjan = Tarjan {
-        index: vec![usize::MAX; successors.len()],
-        low: vec![0; successors.len()],
-        on_stack: vec![false; successors.len()],
-        stack: Vec::new(),
-        component: vec![usize::MAX; successors.len()],
-        next_index: 0,
-        next_component: 0,
-    };
-
-    for root in 0..successors.len() {
-        if tarjan.index[root] == usize::MAX {
-            tarjan.visit_from(root, successors);
+            self.reached[node] = true;
+            let next = &self.successors[self.successor_start[node]..self.successor_start[node + 1]];
+            self.stack
+                .extend(next.iter().filter(|&&next| !self.reached[next]));
         }
     }
-
-    tarjan.component
 }
 
-/// The working state of Tarjan's strongly connected components algorithm.
+/// Empties `buffer` and refills it with `len` copies of `value`, keeping its capacity.
+fn reset<T: Copy>(buffer: &mut Vec<T>, len: usize, value: T) {
+    buffer.clear();
+    buffer.resize(len, value);
+}
+
+/// The working state of Tarjan's strongly connected components algorithm, iterative.
+#[derive(Debug, Default)]
 struct Tarjan {
-    /// The visiting order of each node; `usize::MAX` while unvisited.
+    /// The visiting order of each node; [`NONE`] while unvisited.
     index: Vec<usize>,
     /// The smallest visiting order reachable from each node through its subtree.
     low: Vec<usize>,
@@ -178,7 +227,9 @@ struct Tarjan {
     on_stack: Vec<bool>,
     /// Visited nodes not yet assigned a component.
     stack: Vec<usize>,
-    /// The component of each node; `usize::MAX` until assigned.
+    /// The simulated call stack: a node and the position of its next successor.
+    calls: Vec<(usize, usize)>,
+    /// The component of each node.
     component: Vec<usize>,
     /// The visiting order the next node gets.
     next_index: usize,
@@ -187,17 +238,38 @@ struct Tarjan {
 }
 
 impl Tarjan {
+    /// Computes the component of every node of the graph given in compressed rows.
+    fn run(&mut self, start: &[usize], successors: &[usize]) {
+        let nodes = start.len() - 1;
+        reset(&mut self.index, nodes, NONE);
+        reset(&mut self.low, nodes, 0);
+        reset(&mut self.on_stack, nodes, false);
+        reset(&mut self.component, nodes, NONE);
+        self.stack.clear();
+        self.next_index = 0;
+        self.next_component = 0;
+
+        for root in 0..nodes {
+            if self.index[root] == NONE {
+                self.visit_from(root, start, successors);
+            }
+        }
+    }
+
     /// Visits every unvisited node reachable from `root`, depth first without recursion.
-    fn visit_from(&mut self, root: usize, successors: &[Vec<usize>]) {
-        let mut calls = vec![(root, 0)];
+    fn visit_from(&mut self, root: usize, start: &[usize], successors: &[usize]) {
+        self.calls.clear();
+        self.calls.push((root, start[root]));
         self.enter(root);
 
-        while let Some(&mut (node, ref mut position)) = calls.last_mut() {
-            if let Some(&next) = successors[node].get(*position) {
-                *position += 1;
-                if self.index[next] == usize::MAX {
+        while let Some(&(node, position)) = self.calls.last() {
+            if position < start[node + 1] {
+                let next = successors[position];
+                let top = self.calls.len() - 1;
+                self.calls[top].1 += 1;
+                if self.index[next] == NONE {
                     self.enter(next);
-                    calls.push((next, 0));
+                    self.calls.push((next, start[next]));
                 } else if self.on_stack[next] {
                     self.low[node] = self.low[node].min(self.index[next]);
                 }
@@ -205,8 +277,8 @@ impl Tarjan {
                 continue;
             }
 
-            calls.pop();
-            if let Some(&(parent, _)) = calls.last() {
+            self.calls.pop();
+            if let Some(&(parent, _)) = self.calls.last() {
                 self.low[parent] = self.low[parent].min(self.low[node]);
             }
 

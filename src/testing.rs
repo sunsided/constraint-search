@@ -56,7 +56,7 @@ pub(crate) fn check_against_brute_force<P: Propagator<u16>>(
     let before: Vec<u16> = scope.iter().map(|&var| domains[var]).collect();
     let supported = supports(&before, &check);
 
-    let result = make(scope.clone()).propagate(&mut domains);
+    let result = make(scope.clone()).propagate(&mut domains, &mut P::Scratch::default());
 
     if supported.iter().all(|&domain| domain == 0) {
         assert_eq!(result, Err(Inconsistent), "no solution for {before:?}");

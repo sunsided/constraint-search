@@ -1,6 +1,5 @@
 //! [`Table`]: a constraint given by its allowed tuples.
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{Domain, Domains, Inconsistent, Propagator, Var};
@@ -24,7 +23,7 @@ use crate::{Domain, Domains, Inconsistent, Propagator, Var};
 ///
 /// // A two-cell cage whose values sum to 5.
 /// let cage = Table::new([x, y], [[2, 3], [3, 2]]);
-/// cage.propagate(&mut domains)?;
+/// cage.propagate(&mut domains, &mut Vec::new())?;
 /// assert!(domains[x].values().eq([2, 3]));
 /// # Ok::<(), constraint_search::Inconsistent>(())
 /// ```
@@ -79,12 +78,20 @@ impl Table {
 }
 
 impl<D: Domain> Propagator<D> for Table {
+    /// The values seen in a possible tuple, per variable.
+    type Scratch = Vec<D>;
+
     fn scope(&self) -> &[Var] {
         &self.vars
     }
 
-    fn propagate(&self, domains: &mut Domains<D>) -> Result<(), Inconsistent> {
-        let mut supported = vec![D::empty(); self.vars.len()];
+    fn propagate(
+        &self,
+        domains: &mut Domains<D>,
+        supported: &mut Vec<D>,
+    ) -> Result<(), Inconsistent> {
+        supported.clear();
+        supported.resize(self.vars.len(), D::empty());
         let possible = self.tuples().filter(|tuple| {
             self.vars
                 .iter()
@@ -97,7 +104,7 @@ impl<D: Domain> Propagator<D> for Table {
             }
         }
 
-        for (&var, support) in self.vars.iter().zip(supported) {
+        for (&var, &support) in self.vars.iter().zip(supported.iter()) {
             domains.restrict(var, support)?;
         }
 

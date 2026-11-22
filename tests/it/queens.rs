@@ -16,11 +16,13 @@ struct NoDiagonal {
 }
 
 impl Propagator<u16> for NoDiagonal {
+    type Scratch = ();
+
     fn scope(&self) -> &[Var] {
         &self.vars
     }
 
-    fn propagate(&self, domains: &mut Domains<u16>) -> Result<(), Inconsistent> {
+    fn propagate(&self, domains: &mut Domains<u16>, (): &mut ()) -> Result<(), Inconsistent> {
         for (fixed, other) in [(self.vars[0], self.vars[1]), (self.vars[1], self.vars[0])] {
             if let Some(row) = domains.value(fixed) {
                 domains.remove(other, row + self.distance)?;

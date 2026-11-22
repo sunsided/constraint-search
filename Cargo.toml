@@ -51,3 +51,4 @@ private_intra_doc_links = "allow"
 
 [dev-dependencies]
 proptest = "1.11.0"
+stats_alloc = "0.1.10"

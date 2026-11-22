@@ -5,7 +5,7 @@ mod graph;
 use alloc::vec::Vec;
 
 use crate::{Domain, Domains, Inconsistent, Propagator, Var};
-use graph::ValueGraph;
+pub use graph::MatchingScratch;
 
 /// The variables take pairwise distinct values.
 ///
@@ -16,12 +16,12 @@ use graph::ValueGraph;
 /// when the values must all be used. It fails as soon as fewer values than variables remain.
 ///
 /// Each run builds a matching between variables and values, in `O(n · e)` for `n` variables
-/// and `e` variable–value pairs.
+/// and `e` variable–value pairs. Its buffers live in [`MatchingScratch`] and are reused.
 ///
 /// # Examples
 ///
 /// ```
-/// use constraint_search::{AllDifferent, Domains, Propagator};
+/// use constraint_search::{AllDifferent, Domains, MatchingScratch, Propagator};
 ///
 /// let mut domains = Domains::<u16>::new();
 /// let x = domains.add(0b011);
@@ -29,7 +29,7 @@ use graph::ValueGraph;
 /// let z = domains.add(0b111);
 ///
 /// // x and y use up the values 0 and 1, so z must be 2.
-/// AllDifferent::new([x, y, z]).propagate(&mut domains)?;
+/// AllDifferent::new([x, y, z]).propagate(&mut domains, &mut MatchingScratch::default())?;
 /// assert_eq!(domains.value(z), Some(2));
 /// # Ok::<(), constraint_search::Inconsistent>(())
 /// ```
@@ -61,18 +61,23 @@ impl AllDifferent {
 }
 
 impl<D: Domain> Propagator<D> for AllDifferent {
+    type Scratch = MatchingScratch;
+
     fn scope(&self) -> &[Var] {
         &self.vars
     }
 
-    // shortcut: scratch graph is allocated per run; reuse a buffer if profiling shows it.
-    fn propagate(&self, domains: &mut Domains<D>) -> Result<(), Inconsistent> {
-        let mut graph = ValueGraph::new(domains, &self.vars);
+    fn propagate(
+        &self,
+        domains: &mut Domains<D>,
+        graph: &mut MatchingScratch,
+    ) -> Result<(), Inconsistent> {
+        graph.build(domains, &self.vars);
         if !graph.match_all() {
             return Err(Inconsistent);
         }
 
-        for (position, value) in graph.unsupported() {
+        for &(position, value) in graph.unsupported() {
             domains.remove(self.vars[position], value)?;
         }
 
@@ -85,7 +90,7 @@ impl<D: Domain> Propagator<D> for AllDifferent {
 mod tests {
     use alloc::vec::Vec;
 
-    use super::AllDifferent;
+    use super::{AllDifferent, MatchingScratch};
     use crate::testing::{Rng, check_against_brute_force};
     use crate::{Domains, Inconsistent, Propagator};
 
@@ -114,7 +119,9 @@ mod tests {
         let x = domains.add(0b111);
         let y = domains.add(0b011);
 
-        AllDifferent::new([x, y]).propagate(&mut domains).unwrap();
+        AllDifferent::new([x, y])
+            .propagate(&mut domains, &mut MatchingScratch::default())
+            .unwrap();
         assert_eq!((domains[x], domains[y]), (0b111, 0b011));
     }
 
@@ -125,7 +132,7 @@ mod tests {
         let vars: Vec<_> = (0..3).map(|_| domains.add(0b11)).collect();
 
         assert_eq!(
-            AllDifferent::new(vars).propagate(&mut domains),
+            AllDifferent::new(vars).propagate(&mut domains, &mut MatchingScratch::default()),
             Err(Inconsistent)
         );
     }

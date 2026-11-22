@@ -3,6 +3,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+use crate::propagator::Erased;
 use crate::{Domain, Propagator, Var};
 
 /// A constraint problem: variables, their initial domains and the propagators over them.
@@ -24,7 +25,7 @@ pub struct Model<D> {
     /// The domain each variable starts with, indexed by [`Var::index`]. Never empty.
     initial: Vec<D>,
     /// The constraints, in the order they were added.
-    propagators: Vec<Box<dyn Propagator<D>>>,
+    propagators: Vec<Box<dyn Erased<D>>>,
     /// For each variable, the indices of the propagators whose scope holds it.
     watchers: Vec<Vec<usize>>,
 }
@@ -72,7 +73,7 @@ impl<D: Domain> Model<D> {
     /// Panics if the scope of `propagator` holds a variable that is not in the model.
     pub fn add(&mut self, propagator: impl Propagator<D> + 'static) -> &mut Self {
         let index = self.propagators.len();
-        for var in propagator.scope() {
+        for var in Propagator::scope(&propagator) {
             let watchers = self
                 .watchers
                 .get_mut(var.index())
@@ -98,9 +99,14 @@ impl<D: Domain> Model<D> {
         &self.initial
     }
 
-    /// The constraints, in the order they were added.
+    /// The number of constraints.
     #[must_use]
-    pub fn propagators(&self) -> &[Box<dyn Propagator<D>>] {
+    pub fn num_propagators(&self) -> usize {
+        self.propagators.len()
+    }
+
+    /// The constraints with their scratch types erased, in the order they were added.
+    pub(crate) fn erased(&self) -> &[Box<dyn Erased<D>>] {
         &self.propagators
     }
 
@@ -135,11 +141,13 @@ mod tests {
     struct Twice([Var; 2]);
 
     impl Propagator<u16> for Twice {
+        type Scratch = ();
+
         fn scope(&self) -> &[Var] {
             &self.0
         }
 
-        fn propagate(&self, _: &mut Domains<u16>) -> Result<(), Inconsistent> {
+        fn propagate(&self, _: &mut Domains<u16>, (): &mut ()) -> Result<(), Inconsistent> {
             Ok(())
         }
     }
@@ -153,9 +161,9 @@ mod tests {
 
         assert_eq!(model.watchers(x), [0]);
         assert_eq!(model.num_vars(), 1);
-        assert_eq!(model.propagators().len(), 1);
+        assert_eq!(model.num_propagators(), 1);
         assert_eq!(
-            model.propagators()[0].propagate(&mut Domains::new()),
+            Twice([x, x]).propagate(&mut Domains::new(), &mut ()),
             Ok(())
         );
     }

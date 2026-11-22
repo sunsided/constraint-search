@@ -75,7 +75,7 @@ mod table;
 #[cfg(test)]
 mod testing;
 
-pub use all_different::AllDifferent;
+pub use all_different::{AllDifferent, MatchingScratch};
 pub use domain::{BitSet, Domain, Values};
 pub use exact_cover::ExactCover;
 pub use model::Model;
