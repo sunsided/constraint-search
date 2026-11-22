@@ -21,6 +21,7 @@ extern crate alloc;
 
 mod all_different;
 mod domain;
+mod exact_cover;
 mod model;
 mod propagator;
 mod rule;
@@ -32,6 +33,7 @@ mod testing;
 
 pub use all_different::AllDifferent;
 pub use domain::{BitSet, Domain, Values};
+pub use exact_cover::ExactCover;
 pub use model::Model;
 pub use propagator::Propagator;
 pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
