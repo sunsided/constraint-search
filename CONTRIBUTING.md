@@ -19,6 +19,8 @@ needs before it can be merged.
    - [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/);
    - the `thumbv7em-none-eabihf` target (`rustup target add thumbv7em-none-eabihf`) for the
      `no_std` build.
+   - the nightly toolchain and [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) for the
+     fuzz targets in `fuzz/` (`task fuzz:smoke`, `task fuzz:run TARGET=propagation`).
 4. The crate depends only on search-core, so a plain clone builds. This library tracks no lock file;
    CI resolves fresh from crates.io.
 5. Install the git hooks with [prek](https://prek.j178.dev/) (`prek install`), or with
@@ -29,12 +31,14 @@ needs before it can be merged.
 | Command | What it does |
 |---|---|
 | `task test` | Tests (nextest if installed) and doctests |
+| `task test:prop` | Tests with 10000 property-test cases (`PROPTEST_CASES` overrides) |
+| `task fuzz:smoke` | Run every fuzz target for 10 seconds (`MAX_TIME` overrides); needs nightly |
 | `task lint` | clippy (pedantic), separator ban, README link check, typos, workflow lints |
 | `task fmt` | Format the code |
 | `task doc` | Build the docs, private items included, with warnings as errors |
 | `task ci` | Everything CI runs except the coverage upload and the semver check (`task coverage`, `task semver`). Run it before you open a PR |
 | `task build:no-std` | Build the library for `thumbv7em-none-eabihf` |
-| `task clean` | Remove build output |
+| `task clean` | Remove build output, fuzz builds included (keeps fuzz corpora and crash artifacts) |
 
 ## Code style
 

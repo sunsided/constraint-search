@@ -1,0 +1,51 @@
+[package]
+name = "constraint-search-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# A separate workspace, so the fuzz crate stays out of the library build.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = "1.5.0"
+libfuzzer-sys = "0.4"
+
+[dependencies.constraint-search]
+path = ".."
+
+[[bin]]
+name = "propagation"
+path = "fuzz_targets/propagation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "exact_cover"
+path = "fuzz_targets/exact_cover.rs"
+test = false
+doc = false
+bench = false
+
+# Same lints as the library; `workspace = true` does not reach a separate workspace.
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+mod_module_files = "deny"
+missing_docs_in_private_items = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+cognitive_complexity = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "allow"
