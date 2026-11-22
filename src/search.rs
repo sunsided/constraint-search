@@ -34,10 +34,13 @@ pub struct Stats {
 }
 
 /// How a search ended.
+///
+/// `T` is the solution: the value of every variable for a [`Solver`], the chosen rows for an
+/// [`ExactCover`](crate::ExactCover).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
-    /// A solution: the value of every variable, in index order.
-    Solved(Vec<u32>),
+pub enum Outcome<T = Vec<u32>> {
+    /// A solution: for a [`Solver`], the value of every variable in index order.
+    Solved(T),
     /// The search space is exhausted: no solution exists.
     Unsatisfiable,
     /// The budget stopped the search first.

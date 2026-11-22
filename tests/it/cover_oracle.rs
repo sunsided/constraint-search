@@ -1,7 +1,7 @@
 //! A brute-force oracle for small exact cover problems, shared by the property tests and the
 //! `exact_cover` fuzz target (which includes this file by path).
 
-use constraint_search::{Count, ExactCover};
+use constraint_search::{Count, ExactCover, Outcome, Stats};
 
 /// A small exact cover problem in plain data: few enough rows to try every subset.
 #[derive(Debug, Clone)]
@@ -24,15 +24,22 @@ impl Cover {
         }
 
         let expected = u64::try_from(solutions.len()).unwrap();
-        assert_eq!(
-            problem.count(u64::MAX),
-            Count::Exact(expected),
-            "count of {self:?}"
-        );
+        let count = problem.count(u64::MAX, unlimited);
+        assert_eq!(count.outcome, Count::Exact(expected), "count of {self:?}");
+        assert_eq!(count.stats.solutions, expected, "{self:?}");
 
-        match problem.solve() {
-            Some(rows) => assert!(solutions.contains(&rows), "{rows:?} solves {self:?}"),
-            None => assert!(solutions.is_empty(), "no solution found for {self:?}"),
+        match problem.solve(unlimited).outcome {
+            Outcome::Solved(rows) => assert!(solutions.contains(&rows), "{rows:?} solves {self:?}"),
+            Outcome::Unsatisfiable => assert!(solutions.is_empty(), "nothing found for {self:?}"),
+            Outcome::Exhausted => panic!("an unlimited budget never runs out"),
+        }
+
+        let paused = problem.count(u64::MAX, |stats: &Stats| stats.nodes >= 2);
+        if paused.outcome != Count::Exact(expected) {
+            assert_eq!(
+                paused.stats.nodes, 2,
+                "the budget stops at two nodes for {self:?}"
+            );
         }
     }
 
@@ -68,4 +75,9 @@ impl Cover {
 
         covered[..self.primary].iter().all(|&n| n == 1) && covered.iter().all(|&n| n <= 1)
     }
+}
+
+/// A budget that never stops the search.
+fn unlimited(_: &Stats) -> bool {
+    false
 }
