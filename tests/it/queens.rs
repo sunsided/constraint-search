@@ -2,7 +2,7 @@
 
 use constraint_search::{
     AllDifferent, Count, Domain, Domains, ExactCover, Inconsistent, Model, Outcome, Propagator,
-    Solver, Var,
+    Solver, ValueOrder, Var,
 };
 
 use crate::unlimited;
@@ -61,6 +61,18 @@ fn queens_counts() {
         let report = Solver::new(&model).count(u64::MAX, unlimited);
         assert_eq!(report.outcome, Count::Exact(expected), "{n} queens");
     }
+}
+
+/// Least-constraining-value ordering reports the values its probes refute as failures.
+#[test]
+fn lcv_counts_refuted_probes() {
+    let model = queens(6);
+    let report = Solver::new(&model)
+        .with_value_order(ValueOrder::Lcv)
+        .count(u64::MAX, unlimited);
+
+    assert_eq!(report.outcome, Count::Exact(4));
+    assert!(report.stats.failures > 0);
 }
 
 /// A complete graph on four regions cannot be three-coloured.

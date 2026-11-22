@@ -38,40 +38,44 @@ pub enum ValueOrder {
     /// Largest value first.
     Descending,
     /// The value that leaves the most values in all domains after propagation first
-    /// ("least constraining value"). Values that propagation refutes are skipped. Costs one
-    /// propagation per value, so it pays off when wrong choices are expensive.
+    /// ("least constraining value"). Values that propagation refutes are skipped and count as
+    /// [`Stats::failures`](super::Stats::failures). Costs one propagation per value, so it pays
+    /// off when wrong choices are expensive.
     Lcv,
 }
 
 impl ValueOrder {
-    /// The values of `var` to try, in order.
+    /// The values of `var` to try, in order, and how many values the ordering itself refuted.
     pub(super) fn order<D: Domain>(
         self,
         var: Var,
         model: &Model<D>,
         domains: &mut Domains<D>,
         queue: &mut Queue,
-    ) -> Vec<u32> {
+    ) -> (Vec<u32>, u64) {
         let mut values: Vec<u32> = domains[var].values().collect();
         match self {
-            Self::Ascending => {}
-            Self::Descending => values.reverse(),
-            Self::Lcv => values = least_constraining(var, values, model, domains, queue),
+            Self::Ascending => (values, 0),
+            Self::Descending => {
+                values.reverse();
+                (values, 0)
+            }
+            Self::Lcv => least_constraining(var, values, model, domains, queue),
         }
-
-        values
     }
 }
 
-/// `values` of `var` that survive propagation, the one leaving the most values first.
+/// `values` of `var` that survive propagation, the one leaving the most values first, and the
+/// number of values propagation refuted.
 fn least_constraining<D: Domain>(
     var: Var,
     values: Vec<u32>,
     model: &Model<D>,
     domains: &mut Domains<D>,
     queue: &mut Queue,
-) -> Vec<u32> {
-    let mut scored: Vec<(u64, u32)> = Vec::with_capacity(values.len());
+) -> (Vec<u32>, u64) {
+    let tried = values.len();
+    let mut scored: Vec<(u64, u32)> = Vec::with_capacity(tried);
     for value in values {
         domains.push_level();
         let survives = domains
@@ -88,6 +92,11 @@ fn least_constraining<D: Domain>(
         domains.pop_level();
     }
 
+    let refuted = u64::try_from(tried - scored.len()).expect("a domain has fewer than 2^64 values");
     scored.sort_by_key(|&(left, _)| core::cmp::Reverse(left));
-    scored.into_iter().map(|(_, value)| value).collect()
+
+    (
+        scored.into_iter().map(|(_, value)| value).collect(),
+        refuted,
+    )
 }

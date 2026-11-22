@@ -334,10 +334,11 @@ where
         };
 
         let solver = &mut *self.solver;
-        let values: Vec<u32> =
+        let (values, refuted) =
             solver
                 .value_order
                 .order(var, solver.model, &mut solver.domains, &mut solver.queue);
+        self.stats.failures += refuted;
         for value in values {
             self.branch(var, value)?;
         }
