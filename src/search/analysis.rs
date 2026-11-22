@@ -59,7 +59,8 @@ impl Marginals {
         self.total
     }
 
-    /// Returns `true` if every solution was enumerated, so the probabilities are exact.
+    /// Returns `true` if every solution was enumerated, so the probabilities are exact; `false`
+    /// if more solutions exist than the limit allowed, or the budget ran out.
     #[must_use]
     pub fn is_exact(&self) -> bool {
         self.exact
@@ -84,12 +85,15 @@ impl<D: Domain> Solver<'_, D> {
     /// Information Monte Carlo in game-tree search.
     ///
     /// Returns [`Outcome::Unsatisfiable`] as soon as one search exhausts its space without a
-    /// solution, and [`Outcome::Exhausted`] if every restart ran out of budget.
+    /// solution, and [`Outcome::Exhausted`] if every restart ran out of budget. With zero
+    /// restarts nothing is searched, and the outcome is [`Outcome::Exhausted`]: no attempt had
+    /// any budget. Like [`Solver::solve`], this abandons a search in progress.
     pub fn sample<B: Budget<Stats> + Clone>(
         &mut self,
         restarts: u32,
         budget: B,
     ) -> Report<Outcome> {
+        self.abandon();
         let order = core::mem::replace(&mut self.value_order, ValueOrder::Random);
         let mut stats = Stats::default();
         let mut outcome = Outcome::Exhausted;
@@ -116,7 +120,12 @@ impl<D: Domain> Solver<'_, D> {
     /// unlike propagation, which may keep values that no solution uses. Each solution found
     /// supports all its values at once, so only values not yet seen in a solution cost a
     /// search of their own. The budget sees the counters of all those searches together.
+    ///
+    /// Like [`Solver::solve`], this abandons a search in progress and answers for the domains
+    /// that search began from.
     pub fn possible_values(&mut self, budget: impl Budget<Stats>) -> Report<Option<Vec<D>>> {
+        // Abandon first, so the candidates and the searches see the same domains.
+        self.abandon();
         let mut budget = budget;
         let mut stats = Stats::default();
         let mut possible = vec![D::empty(); self.domains.len()];
@@ -158,6 +167,10 @@ impl<D: Domain> Solver<'_, D> {
 
     /// How often each value occurs among the solutions, enumerating up to `limit` of them.
     ///
+    /// [`Marginals::is_exact`] is `true` exactly when no solution beyond those counted exists;
+    /// telling that apart costs finding one solution past the limit. Like [`Solver::solve`],
+    /// this abandons a search in progress. A limit of 0 counts nothing and is never exact.
+    ///
     /// For example the probability that a hidden card is in West's hand, or that a Minesweeper
     /// cell is a mine. Choosing the probe whose outcome splits the solutions best (the safest
     /// click, a Mastermind guess) is then an expectimax step over these counts.
@@ -174,6 +187,8 @@ impl<D: Domain> Solver<'_, D> {
         budget: impl Budget<Stats>,
         mut weight: impl FnMut(&Domains<D>) -> f64,
     ) -> Report<Marginals> {
+        // Abandon first, so the value range covers every domain the search will see.
+        self.abandon();
         let stride = self.value_stride();
         let mut marginals = Marginals {
             stride,
@@ -190,12 +205,13 @@ impl<D: Domain> Solver<'_, D> {
             }
         } else {
             self.for_each_solution(budget, |domains| {
-                add_solution(&mut marginals, domains, weight(domains));
-                if marginals.solutions >= limit {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
+                // A solution past the limit only proves the enumeration incomplete.
+                if marginals.solutions == limit {
+                    return ControlFlow::Break(());
                 }
+
+                add_solution(&mut marginals, domains, weight(domains));
+                ControlFlow::Continue(())
             })
         };
 

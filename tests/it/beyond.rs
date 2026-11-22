@@ -252,3 +252,45 @@ fn analysis_limits_and_seeded_samples() {
         .collect();
     assert!(distinct.len() > 1, "successive samples differ");
 }
+
+/// The analysis answers for the domains a paused search began from, never for that search's
+/// narrowed state, and its edge cases are defined.
+#[test]
+fn analysis_after_a_paused_search() {
+    let mut model = Model::<u16>::new();
+    let vars = model.add_vars(3, u16::range(3));
+    model.add(AllDifferent::new(vars.iter().copied()));
+    let mut solver = Solver::new(&model);
+
+    solver.begin();
+    assert_eq!(
+        solver.resume(unlimited).outcome,
+        constraint_search::Progress::Solution
+    );
+    let possible = solver.possible_values(unlimited).outcome.unwrap();
+    assert!(
+        possible.iter().all(|&domain| domain == 0b111),
+        "every value is possible"
+    );
+    assert_eq!(
+        solver.backbone(unlimited).outcome.unwrap(),
+        [None, None, None]
+    );
+
+    solver.begin();
+    let _ = solver.resume(unlimited);
+    let odds = solver.marginals(u64::MAX, unlimited).outcome;
+    assert_eq!(odds.solutions(), 6);
+    assert!((odds.probability(vars[2], 2) - 1.0 / 3.0).abs() < 1e-12);
+
+    let at_limit = solver.marginals(6, unlimited).outcome;
+    assert!(
+        at_limit.is_exact(),
+        "six solutions under a limit of six are all of them"
+    );
+    assert!(!solver.marginals(5, unlimited).outcome.is_exact());
+
+    solver.begin();
+    assert_eq!(solver.sample(0, unlimited).outcome, Outcome::Exhausted);
+    assert!(!solver.is_searching());
+}
