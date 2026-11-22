@@ -174,7 +174,7 @@ impl<D: Domain> Solver<'_, D> {
             &mut self.domains,
             &mut self.engine,
             &mut self.values,
-            &mut self.scores,
+            &mut self.ordering,
         );
         self.prefer_hint(var, start);
         self.frames.push(Frame {

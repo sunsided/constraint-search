@@ -42,11 +42,57 @@ pub enum ValueOrder {
     /// [`Stats::failures`](super::Stats::failures). Costs one propagation per value, so it pays
     /// off when wrong choices are expensive.
     Lcv,
+    /// A random order, from the solver's seed ([`Solver::set_seed`](super::Solver::set_seed)).
+    /// Repeated searches with different seeds sample different solutions; see
+    /// [`Solver::sample`](super::Solver::sample).
+    Random,
+}
+
+/// Scratch and state of the value orderings, owned by the solver and reused.
+#[derive(Debug, Clone)]
+pub(super) struct OrderState {
+    /// For [`ValueOrder::Lcv`]: how many values each candidate leaves, and the value.
+    pub(super) scores: Vec<(u64, u32)>,
+    /// For [`ValueOrder::Random`]: the xorshift64 state. Never zero.
+    pub(super) rng: u64,
+}
+
+impl Default for OrderState {
+    fn default() -> Self {
+        Self {
+            scores: Vec::new(),
+            rng: 0x9e37_79b9_7f4a_7c15,
+        }
+    }
+}
+
+impl OrderState {
+    /// Seeds the random ordering; a zero seed is replaced, since xorshift sticks at zero.
+    pub(super) fn seed(&mut self, seed: u64) {
+        self.rng = seed.max(1);
+    }
+
+    /// The next 64 random bits.
+    fn next(&mut self) -> u64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng
+    }
+
+    /// Shuffles `values` uniformly (Fisher–Yates).
+    fn shuffle(&mut self, values: &mut [u32]) {
+        for i in (1..values.len()).rev() {
+            let bound = u64::try_from(i + 1).expect("a domain has fewer than 2^64 values");
+            let j = usize::try_from(self.next() % bound).expect("below a usize bound");
+            values.swap(i, j);
+        }
+    }
 }
 
 impl ValueOrder {
     /// Pushes the values of `var` to try onto `values`, in order, and returns how many values
-    /// the ordering itself refuted. `scores` is scratch memory.
+    /// the ordering itself refuted.
     pub(super) fn order<D: Domain>(
         self,
         var: Var,
@@ -54,7 +100,7 @@ impl ValueOrder {
         domains: &mut Domains<D>,
         engine: &mut Engine,
         values: &mut Vec<u32>,
-        scores: &mut Vec<(u64, u32)>,
+        state: &mut OrderState,
     ) -> u64 {
         let start = values.len();
         match self {
@@ -64,9 +110,13 @@ impl ValueOrder {
                 values[start..].reverse();
             }
             Self::Lcv => {
-                let refuted = score(var, model, domains, engine, scores);
-                values.extend(scores.iter().map(|&(_, value)| value));
+                let refuted = score(var, model, domains, engine, &mut state.scores);
+                values.extend(state.scores.iter().map(|&(_, value)| value));
                 return refuted;
+            }
+            Self::Random => {
+                values.extend(domains[var].values());
+                state.shuffle(&mut values[start..]);
             }
         }
 

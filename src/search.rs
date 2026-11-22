@@ -4,6 +4,7 @@
 //! Each node picks an unfixed variable, tries its values in turn and propagates after each
 //! choice; a conflict undoes the choice through the trail.
 
+mod analysis;
 mod order;
 mod walk;
 
@@ -14,6 +15,8 @@ use search_core::Budget;
 
 use crate::propagator::Engine;
 use crate::{Domain, Domains, Inconsistent, Model};
+pub use analysis::Marginals;
+use order::OrderState;
 pub use order::{ValueOrder, VarOrder};
 pub use walk::Progress;
 use walk::{Frame, Phase};
@@ -35,10 +38,6 @@ pub struct Stats {
 
 impl Stats {
     /// The counters of `self` and `other` added up, for searches made of several parts.
-    #[cfg_attr(
-        not(feature = "parallel"),
-        expect(dead_code, reason = "only parallel search sums counters")
-    )]
     pub(crate) fn plus(self, other: Self) -> Self {
         Self {
             nodes: self.nodes + other.nodes,
@@ -158,8 +157,8 @@ pub struct Solver<'m, D> {
     /// The values still to try at each open search node, stacked: a node's values sit above
     /// its parent's and are popped when the node returns.
     values: Vec<u32>,
-    /// Scratch for [`ValueOrder::Lcv`]: how many values each candidate leaves, and the value.
-    scores: Vec<(u64, u32)>,
+    /// Scratch and state of the value orderings.
+    ordering: OrderState,
     /// The open nodes of the search in progress, root first.
     frames: Vec<Frame>,
     /// The next step of the search in progress.
@@ -184,7 +183,7 @@ impl<'m, D: Domain> Solver<'m, D> {
             domains: Domains::new(),
             engine: Engine::new(model),
             values: Vec::new(),
-            scores: Vec::new(),
+            ordering: OrderState::default(),
             frames: Vec::new(),
             phase: Phase::Idle,
             base_level: 0,

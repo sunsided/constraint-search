@@ -107,6 +107,51 @@ impl Csp {
         self.check_propagation(&model, &solutions);
         self.check_search(&model, &solutions);
         self.check_rules(&solutions);
+        self.check_analysis(&model, &solutions);
+    }
+
+    /// Possible values, the backbone, marginals and samples agree with the solutions.
+    fn check_analysis(&self, model: &Model<u16>, solutions: &[Vec<u32>]) {
+        let mut expected = vec![0_u16; self.domains.len()];
+        for solution in solutions {
+            for (domain, &value) in expected.iter_mut().zip(solution) {
+                domain.insert(value);
+            }
+        }
+
+        let mut solver = Solver::new(model);
+        let possible = solver.possible_values(unlimited).outcome;
+        assert_eq!(
+            possible.as_ref(),
+            Some(&expected),
+            "possible values of {self:?}"
+        );
+        let backbone = solver.backbone(unlimited).outcome.unwrap();
+        let fixed: Vec<Option<u32>> = expected.iter().map(Domain::value).collect();
+        assert_eq!(backbone, fixed, "backbone of {self:?}");
+
+        let marginals = solver.marginals(u64::MAX, unlimited).outcome;
+        assert!(marginals.is_exact());
+        assert_eq!(
+            marginals.solutions(),
+            u64::try_from(solutions.len()).unwrap()
+        );
+        for (index, &domain) in self.domains.iter().enumerate() {
+            for value in domain.values() {
+                let count = solutions.iter().filter(|s| s[index] == value).count();
+                let small = |n: usize| f64::from(u32::try_from(n).unwrap());
+                let share = small(count) / small(solutions.len().max(1));
+                let probability = marginals.probability(var(index), value);
+                assert!((probability - share).abs() < 1e-9, "marginal of {self:?}");
+            }
+        }
+
+        solver.set_seed(u64::try_from(solutions.len()).unwrap() + 1);
+        match solver.sample(3, unlimited).outcome {
+            Outcome::Solved(values) => assert!(solutions.contains(&values), "{self:?}"),
+            Outcome::Unsatisfiable => assert!(solutions.is_empty(), "{self:?}"),
+            Outcome::Exhausted => panic!("an unlimited budget never runs out"),
+        }
     }
 
     /// Propagation fails only without solutions, and keeps every value of every solution.

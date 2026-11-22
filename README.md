@@ -20,6 +20,8 @@ Finite-domain constraint satisfaction in Rust: variables with small domains, con
 - Backtracking search with variable and value ordering heuristics under a budget, resumable
   so the work can be spread across frames or ticks
 - Solution counting with early stop, for checking that a puzzle has a unique solution
+- Problems with many solutions: the values certain in every solution (backbone), each
+  value's probability (marginals), and random solutions to sample hidden information
 - Exact cover with dancing links
 
 Typical uses are logic puzzles (Sudoku and its variants, nonograms, KenKen, Kakuro, logic grids, cryptarithms), Minesweeper and card-location deduction, map colouring, timetabling and small scheduling problems. Adversarial games belong in [game-tree-search](https://github.com/sunsided/game-tree-search), and path finding in [heuristic-search](https://github.com/sunsided/heuristic-search).
