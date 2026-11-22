@@ -43,13 +43,16 @@ mod tests {
     impl Propagator<[u16; 2]> for NotEqual {
         fn propagate(&mut self, domains: &mut [u16; 2]) -> Option<bool> {
             let mut changed = false;
+
             for (fixed, other) in [(0, 1), (1, 0)] {
                 let value = domains[fixed];
+
                 if value.is_power_of_two() && domains[other] & value != 0 {
                     domains[other] &= !value;
                     changed = true;
                 }
             }
+
             if domains.contains(&0) {
                 None
             } else {
@@ -64,6 +67,7 @@ mod tests {
         while propagator.propagate(domains)? {
             rounds += 1;
         }
+
         Some(rounds)
     }
 

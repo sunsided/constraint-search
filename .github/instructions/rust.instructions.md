@@ -24,8 +24,8 @@ applyTo: "**/*.rs"
   job). Flag any new `[dependencies]` entry, any `std` or `alloc` use, and any feature-gated
   item without its `#[cfg]` on the re-export in `lib.rs`.
 - `Propagator::propagate` only removes values: it never adds one back to a domain. It returns
-  `Some(true)` exactly when a domain shrank and `None` when a domain runs empty, so
-  propagation loops terminate at a fixpoint and detect conflicts.
+  `Some(true)` exactly when a domain shrank and `None` when the constraint can no longer be
+  satisfied, so propagation loops terminate at a fixpoint and detect conflicts.
 - Public API changes go with a matching update to the README scope list and usage example
   and the crate docs in `lib.rs`. Name every public API change in the PR.
 - Mermaid diagrams in doc comments must match the code they describe. Update them when the

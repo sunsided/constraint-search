@@ -28,9 +28,9 @@ cargo add constraint-search
 ```
 
 A propagator is a constraint that removes values from variable domains. It reports whether
-it pruned anything, so propagation can stop at a fixpoint, and reports a conflict when a
-domain runs empty. Here, `x != y` over two variables whose domains are bitsets of the
-values 0 to 15.
+it pruned anything, so propagation can stop at a fixpoint, and reports a conflict when the
+constraint can no longer be satisfied. Here, `x != y` over two variables whose domains are
+bitsets of the values 0 to 15.
 
 ```rust
 use constraint_search::Propagator;
@@ -41,14 +41,17 @@ struct NotEqual;
 impl Propagator<[u16; 2]> for NotEqual {
     fn propagate(&mut self, domains: &mut [u16; 2]) -> Option<bool> {
         let mut changed = false;
+
         for (fixed, other) in [(0, 1), (1, 0)] {
             let value = domains[fixed];
+
             // A single remaining value fixes the variable and rules that value out for the other.
             if value.is_power_of_two() && domains[other] & value != 0 {
                 domains[other] &= !value;
                 changed = true;
             }
         }
+
         if domains.contains(&0) { None } else { Some(changed) }
     }
 }
