@@ -1,7 +1,7 @@
 [package]
 name = "constraint-search"
 description = "Finite-domain constraint satisfaction: propagation to a fixpoint, all-different reasoning, cost-ordered inference rules, backtracking with a trail and solution counting"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Markus Mayer <widemeadows@gmail.com>"]
