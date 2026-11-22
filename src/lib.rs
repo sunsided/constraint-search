@@ -25,3 +25,8 @@ pub trait Propagator<Domains> {
     /// changed and `None` if the constraint can no longer be satisfied.
     fn propagate(&mut self, domains: &mut Domains) -> Option<bool>;
 }
+
+/// Doctests for the code examples in README.md (not part of the API).
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+mod readme_doctests {}
