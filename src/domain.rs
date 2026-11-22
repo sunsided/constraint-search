@@ -9,8 +9,8 @@ use core::fmt::Debug;
 
 /// The set of values a variable may still take, as a bitset over `0..CAPACITY`.
 ///
-/// Domains are small and `Copy`: the store and the trail copy them by value. All operations
-/// are set operations; none of them allocates.
+/// Domains are small plain values (`Copy`, `Send + Sync + 'static`): the store and the trail
+/// copy them by value. All operations are set operations; none of them allocates.
 ///
 /// # Examples
 ///
@@ -23,7 +23,7 @@ use core::fmt::Debug;
 /// assert_eq!(digits.first(), Some(0));
 /// assert!(digits.values().eq([0, 1, 2, 3, 5, 6, 7, 8]));
 /// ```
-pub trait Domain: Copy + Eq + Debug {
+pub trait Domain: Copy + Eq + Debug + Send + Sync + 'static {
     /// The number of values the domain can hold; every value is below it.
     const CAPACITY: u32;
 

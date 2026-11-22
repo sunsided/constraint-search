@@ -11,7 +11,7 @@ use core::ops::ControlFlow;
 
 use search_core::Budget;
 
-use crate::propagator::Queue;
+use crate::propagator::Engine;
 use crate::{Domain, Domains, Inconsistent, Model};
 pub use order::{ValueOrder, VarOrder};
 
@@ -72,8 +72,10 @@ pub struct Report<T> {
 
 /// Backtracking search over a shared [`Model`], with reusable working state.
 ///
-/// The solver owns the current domains, their trail and the propagation queue, and keeps
-/// their allocations from one solve to the next: [`Solver::reset`] returns to the model's
+/// The solver owns the current domains, their trail, the propagation queue and every
+/// propagator's scratch memory, and keeps their allocations from one solve to the next:
+/// once warmed up, [`Solver::count`] and [`Solver::for_each_solution`] allocate nothing, and
+/// [`Solver::solve`] allocates only the solution it returns. [`Solver::reset`] returns to the model's
 /// initial domains without reallocating. Search leaves the domains as it found them, so a
 /// caller can fix some variables ([`Solver::domains_mut`]) and search many times from there.
 ///
@@ -125,8 +127,13 @@ pub struct Solver<'m, D> {
     model: &'m Model<D>,
     /// The current domains and their trail.
     domains: Domains<D>,
-    /// The propagation queue.
-    queue: Queue,
+    /// The propagation queue and each propagator's scratch memory.
+    engine: Engine,
+    /// The values still to try at each open search node, stacked: a node's values sit above
+    /// its parent's and are popped when the node returns.
+    values: Vec<u32>,
+    /// Scratch for [`ValueOrder::Lcv`]: how many values each candidate leaves, and the value.
+    scores: Vec<(u64, u32)>,
     /// How to pick the variable to branch on.
     var_order: VarOrder,
     /// How to order the values of that variable.
@@ -141,7 +148,9 @@ impl<'m, D: Domain> Solver<'m, D> {
         let mut solver = Self {
             model,
             domains: Domains::new(),
-            queue: Queue::default(),
+            engine: Engine::new(model),
+            values: Vec::new(),
+            scores: Vec::new(),
             var_order: VarOrder::default(),
             value_order: ValueOrder::default(),
         };
@@ -187,7 +196,7 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// Returns [`Inconsistent`] if the constraints cannot be satisfied. The domains are then
     /// partly propagated; [`Solver::reset`] starts over.
     pub fn propagate(&mut self) -> Result<(), Inconsistent> {
-        self.queue.fixpoint(self.model, &mut self.domains)
+        self.engine.fixpoint(self.model, &mut self.domains)
     }
 
     /// Finds one solution.
@@ -300,7 +309,7 @@ where
         solver.domains.push_level();
 
         let status = if solver
-            .queue
+            .engine
             .fixpoint(solver.model, &mut solver.domains)
             .is_err()
         {
@@ -315,6 +324,7 @@ where
         };
 
         self.solver.domains.pop_level();
+        self.solver.values.clear();
         status
     }
 
@@ -334,15 +344,22 @@ where
         };
 
         let solver = &mut *self.solver;
-        let (values, refuted) =
-            solver
-                .value_order
-                .order(var, solver.model, &mut solver.domains, &mut solver.queue);
-        self.stats.failures += refuted;
-        for value in values {
+        let start = solver.values.len();
+        self.stats.failures += solver.value_order.order(
+            var,
+            solver.model,
+            &mut solver.domains,
+            &mut solver.engine,
+            &mut solver.values,
+            &mut solver.scores,
+        );
+
+        for index in start..self.solver.values.len() {
+            let value = self.solver.values[index];
             self.branch(var, value)?;
         }
 
+        self.solver.values.truncate(start);
         ControlFlow::Continue(())
     }
 
@@ -371,7 +388,7 @@ fn assign_and_propagate<D: Domain>(
 ) -> Result<(), Inconsistent> {
     solver.domains.assign(var, value)?;
     solver
-        .queue
+        .engine
         .propagate_changes(solver.model, &mut solver.domains)
 }
 

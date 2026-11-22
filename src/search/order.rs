@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crate::propagator::Queue;
+use crate::propagator::Engine;
 use crate::{Domain, Domains, Model, Var};
 
 /// How search picks the variable to branch on.
@@ -45,58 +45,63 @@ pub enum ValueOrder {
 }
 
 impl ValueOrder {
-    /// The values of `var` to try, in order, and how many values the ordering itself refuted.
+    /// Pushes the values of `var` to try onto `values`, in order, and returns how many values
+    /// the ordering itself refuted. `scores` is scratch memory.
     pub(super) fn order<D: Domain>(
         self,
         var: Var,
         model: &Model<D>,
         domains: &mut Domains<D>,
-        queue: &mut Queue,
-    ) -> (Vec<u32>, u64) {
-        let mut values: Vec<u32> = domains[var].values().collect();
+        engine: &mut Engine,
+        values: &mut Vec<u32>,
+        scores: &mut Vec<(u64, u32)>,
+    ) -> u64 {
+        let start = values.len();
         match self {
-            Self::Ascending => (values, 0),
+            Self::Ascending => values.extend(domains[var].values()),
             Self::Descending => {
-                values.reverse();
-                (values, 0)
+                values.extend(domains[var].values());
+                values[start..].reverse();
             }
-            Self::Lcv => least_constraining(var, values, model, domains, queue),
+            Self::Lcv => {
+                let refuted = score(var, model, domains, engine, scores);
+                values.extend(scores.iter().map(|&(_, value)| value));
+                return refuted;
+            }
         }
+
+        0
     }
 }
 
-/// `values` of `var` that survive propagation, the one leaving the most values first, and the
-/// number of values propagation refuted.
-fn least_constraining<D: Domain>(
+/// Scores each value of `var` that survives propagation by the values it leaves, most first
+/// (ties by ascending value), and returns how many values propagation refuted.
+fn score<D: Domain>(
     var: Var,
-    values: Vec<u32>,
     model: &Model<D>,
     domains: &mut Domains<D>,
-    queue: &mut Queue,
-) -> (Vec<u32>, u64) {
-    let tried = values.len();
-    let mut scored: Vec<(u64, u32)> = Vec::with_capacity(tried);
-    for value in values {
+    engine: &mut Engine,
+    scores: &mut Vec<(u64, u32)>,
+) -> u64 {
+    let candidates = domains[var];
+    scores.clear();
+    for value in candidates.values() {
         domains.push_level();
         let survives = domains
             .assign(var, value)
-            .and_then(|_| queue.propagate_changes(model, domains));
+            .and_then(|_| engine.propagate_changes(model, domains));
         if survives.is_ok() {
             let left = domains
                 .vars()
                 .map(|other| u64::from(domains[other].len()))
                 .sum();
-            scored.push((left, value));
+            scores.push((left, value));
         }
 
         domains.pop_level();
     }
 
-    let refuted = u64::try_from(tried - scored.len()).expect("a domain has fewer than 2^64 values");
-    scored.sort_by_key(|&(left, _)| core::cmp::Reverse(left));
-
-    (
-        scored.into_iter().map(|(_, value)| value).collect(),
-        refuted,
-    )
+    // Unstable sort: it never allocates, and the value breaks ties deterministically.
+    scores.sort_unstable_by_key(|&(left, value)| (core::cmp::Reverse(left), value));
+    u64::from(candidates.len()) - u64::try_from(scores.len()).expect("fewer than 2^64 values")
 }
