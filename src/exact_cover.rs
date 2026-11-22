@@ -13,9 +13,9 @@ use crate::Count;
 /// An exact cover problem: columns to cover and rows that each cover some of them.
 ///
 /// Primary columns must be covered exactly once, secondary columns at most once. Search
-/// branches on the primary column with the fewest rows left. The links are indices into
-/// flat arrays, so the structure needs no unsafe code and searches in place, restoring
-/// itself afterwards.
+/// branches on the primary column with the fewest rows left, so a row without a primary
+/// column is never chosen. The links are indices into flat arrays, so the structure needs no
+/// unsafe code and searches in place, restoring itself afterwards.
 ///
 /// # Examples
 ///

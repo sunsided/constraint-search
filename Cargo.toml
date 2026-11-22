@@ -48,3 +48,6 @@ cognitive_complexity = "warn"
 [lints.rustdoc]
 broken_intra_doc_links = "deny"
 private_intra_doc_links = "allow"
+
+[dev-dependencies]
+proptest = "1.11.0"

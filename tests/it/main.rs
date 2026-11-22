@@ -1,5 +1,8 @@
 //! Integration tests: whole puzzles modelled through the public API.
 
+mod cover_oracle;
+mod csp_oracle;
+mod props;
 mod queens;
 mod rules;
 mod sudoku;
