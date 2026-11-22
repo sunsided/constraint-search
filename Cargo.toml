@@ -25,6 +25,7 @@ exclude = [
 ]
 
 [dependencies]
+search-core = { version = "0.3.0", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

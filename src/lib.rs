@@ -24,6 +24,7 @@ mod domain;
 mod model;
 mod propagator;
 mod rule;
+mod search;
 mod store;
 mod table;
 #[cfg(test)]
@@ -34,6 +35,7 @@ pub use domain::{BitSet, Domain, Values};
 pub use model::Model;
 pub use propagator::Propagator;
 pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
+pub use search::{Count, Outcome, Report, Solver, Stats, Status, ValueOrder, VarOrder};
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;
 
