@@ -13,8 +13,10 @@ Finite-domain constraint satisfaction in Rust: variables with small domains, con
 ## Scope
 
 - Finite-domain variables with bitset domains and a trail for undoing changes on backtrack
-- Propagators run to a fixpoint, including all-different with Hall-set reasoning
-- Pluggable inference rules ordered by cost, for human-style solving and difficulty grading
+- Propagators run to a fixpoint, including all-different with complete Hall-set reasoning and
+  constraints given by their allowed tuples
+- Pluggable inference rules ordered by cost, for human-style solving, hints and difficulty
+  grading
 - Backtracking search with variable and value ordering heuristics under a budget
 - Solution counting with early stop, for checking that a puzzle has a unique solution
 - Exact cover with dancing links
@@ -27,44 +29,53 @@ Typical uses are logic puzzles (Sudoku and its variants, nonograms, KenKen), map
 cargo add constraint-search
 ```
 
-A propagator is a constraint that removes values from variable domains. It reports whether
-it pruned anything, so propagation can stop at a fixpoint, and reports a conflict when the
-constraint can no longer be satisfied. Here, `x != y` over two variables whose domains are
-bitsets of the values 0 to 15.
+A [`Model`] holds the variables and constraints and can be shared between threads. A
+[`Solver`] borrows it and reuses its working state from one search to the next. Here, the
+3×3 Latin squares: every row and column holds the values 0, 1 and 2 once.
 
 ```rust
-use constraint_search::Propagator;
+use constraint_search::{AllDifferent, Count, Domain, Model, Outcome, Solver, Stats};
 
-/// `x != y`; bit `v` of a domain is set while the variable may still take the value `v`.
-struct NotEqual;
-
-impl Propagator<[u16; 2]> for NotEqual {
-    fn propagate(&mut self, domains: &mut [u16; 2]) -> Option<bool> {
-        let mut changed = false;
-
-        for (fixed, other) in [(0, 1), (1, 0)] {
-            let value = domains[fixed];
-
-            // A single remaining value fixes the variable and rules that value out for the other.
-            if value.is_power_of_two() && domains[other] & value != 0 {
-                domains[other] &= !value;
-                changed = true;
-            }
-        }
-
-        if domains.contains(&0) { None } else { Some(changed) }
-    }
+let mut model = Model::<u16>::new();
+let cells = model.add_vars(9, u16::range(3));
+for i in 0..3 {
+    model.add(AllDifferent::new((0..3).map(|j| cells[3 * i + j])));
+    model.add(AllDifferent::new((0..3).map(|j| cells[3 * j + i])));
 }
 
-// x is fixed to 3; y may be 3 or 5.
-let mut domains = [1 << 3, 1 << 3 | 1 << 5];
-assert_eq!(NotEqual.propagate(&mut domains), Some(true));
-assert_eq!(domains, [1 << 3, 1 << 5]);
-// Nothing is left to prune: propagation has reached a fixpoint.
-assert_eq!(NotEqual.propagate(&mut domains), Some(false));
+// No budget limit: the closure never asks the search to stop.
+let unlimited = |_: &Stats| false;
+let mut solver = Solver::new(&model);
+assert_eq!(solver.count(u64::MAX, unlimited).outcome, Count::Exact(12));
+
+// One clue leaves several squares; a second one makes the square unique.
+solver.domains_mut().assign(cells[0], 0)?;
+assert_eq!(solver.count(2, unlimited).outcome, Count::AtLeast(2));
+
+solver.domains_mut().assign(cells[4], 1)?;
+assert_eq!(solver.count(2, unlimited).outcome, Count::Exact(1));
+let report = solver.solve(unlimited);
+assert_eq!(report.outcome, Outcome::Solved(vec![0, 2, 1, 2, 1, 0, 1, 0, 2]));
+# Ok::<(), constraint_search::Inconsistent>(())
 ```
 
-The crate is `no_std` and has no dependencies.
+Custom constraints implement [`Propagator`]; [`Table`] lists allowed tuples for small ones.
+For human-style solving, [`Rules`] applies costed techniques ([`NakedSubset`],
+[`HiddenSubset`], [`Intersection`] or your own [`Rule`]), cheapest first. Each step can serve
+as a hint, and the most expensive rule a solve needed grades the puzzle.
+
+[`Model`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Model.html
+[`Solver`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Solver.html
+[`Propagator`]: https://docs.rs/constraint-search/latest/constraint_search/trait.Propagator.html
+[`Table`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Table.html
+[`Rules`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Rules.html
+[`Rule`]: https://docs.rs/constraint-search/latest/constraint_search/trait.Rule.html
+[`NakedSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.NakedSubset.html
+[`HiddenSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.HiddenSubset.html
+[`Intersection`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Intersection.html
+
+The crate is `no_std` and needs `alloc`. Its one dependency is
+[search-core](https://github.com/sunsided/search-core), for the `Budget` trait.
 
 ## Minimum supported Rust version
 
