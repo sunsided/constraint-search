@@ -55,7 +55,9 @@
 //! assert_eq!(colours[0], colours[3]); // a and d must share a colour
 //! ```
 //!
-//! The crate is `no_std` and needs `alloc`.
+//! The crate is `no_std` and needs `alloc`. The `parallel` feature adds `ParallelSolver`
+//! (it needs `std` for threads): the search tree split across a pool of threads, or a
+//! portfolio of branching heuristics racing each other, with a shared stop.
 //!
 //! Repository: <https://github.com/sunsided/constraint-search>
 
@@ -68,6 +70,8 @@ mod all_different;
 mod domain;
 mod exact_cover;
 mod model;
+#[cfg(feature = "parallel")]
+mod parallel;
 mod propagator;
 mod rule;
 mod search;
@@ -80,6 +84,8 @@ pub use all_different::{AllDifferent, MatchingScratch};
 pub use domain::{BitSet, Domain, Values};
 pub use exact_cover::ExactCover;
 pub use model::Model;
+#[cfg(feature = "parallel")]
+pub use parallel::ParallelSolver;
 pub use propagator::Propagator;
 pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
 pub use search::{Count, Outcome, Progress, Report, Solver, Stats, Status, ValueOrder, VarOrder};
