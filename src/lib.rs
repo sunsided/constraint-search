@@ -17,6 +17,10 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+mod domain;
+
+pub use domain::{BitSet, Domain, Values};
+
 /// A constraint that removes values from variable domains.
 ///
 /// A propagator reads the current domains, removes every value it can prove impossible and
