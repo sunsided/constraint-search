@@ -18,6 +18,9 @@
 //!   [`Solver::resume`])
 //! - Solution counting with early stop, for checking that a puzzle has a unique solution
 //!   ([`Solver::count`])
+//! - Problems with many solutions, as with hidden information: the values certain in every
+//!   solution ([`Solver::backbone`]), each value's probability ([`Solver::marginals`]), and
+//!   random solutions to determinize hidden state for game-tree search ([`Solver::sample`])
 //! - Exact cover with dancing links ([`ExactCover`])
 //!
 //! ## Overview
@@ -96,7 +99,9 @@ pub use rule::{
     GroupIntersection, PropagatorRule, Rule, Rules, Step, SumDifference, Trace, ValueSubset,
     VariableSubset,
 };
-pub use search::{Count, Outcome, Progress, Report, Solver, Stats, Status, ValueOrder, VarOrder};
+pub use search::{
+    Count, Marginals, Outcome, Progress, Report, Solver, Stats, Status, ValueOrder, VarOrder,
+};
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;
 

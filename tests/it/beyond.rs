@@ -3,7 +3,7 @@
 
 use constraint_search::{
     AllDifferent, Count, Domain, Domains, Line, Linear, Model, Outcome, PropagatorRule, Relation,
-    Rules, Solver, SumDifference, Table, ValueSubset, Var, VariableSubset,
+    Rules, Solver, Stats, SumDifference, Table, ValueSubset, Var, VariableSubset,
 };
 
 use crate::unlimited;
@@ -183,4 +183,72 @@ fn logic_grid_by_rules() {
     let houses = [green, blue, dog, fish].map(|var| domains.value(var).unwrap());
     assert_eq!(houses, [1, 2, 1, 0]);
     assert_eq!(trace.grade(), Some(3), "the clue about the dog was needed");
+}
+
+/// The 1-2 pattern as a model: the backbone holds the certain mine, marginals the odds of
+/// the others, and a weighted prior shifts those odds.
+#[test]
+fn minesweeper_backbone_and_odds() {
+    let mut model = Model::<u16>::new();
+    let [a, b, c] = [(); 3].map(|()| model.add_var(u16::range(2)));
+    model.add(Linear::sum([a, b], Relation::Equal, 1));
+    model.add(Linear::sum([a, b, c], Relation::Equal, 2));
+    let mut solver = Solver::new(&model);
+
+    let backbone = solver.backbone(unlimited).outcome.unwrap();
+    assert_eq!(backbone, [None, None, Some(1)], "only c is certain");
+
+    let odds = solver.marginals(u64::MAX, unlimited).outcome;
+    assert!(odds.is_exact());
+    assert_eq!(odds.solutions(), 2);
+    assert!((odds.probability(a, 1) - 0.5).abs() < 1e-12);
+    assert!((odds.probability(c, 1) - 1.0).abs() < 1e-12);
+
+    let prior = solver.weighted_marginals(u64::MAX, unlimited, |domains| {
+        if domains.value(a) == Some(1) {
+            3.0
+        } else {
+            1.0
+        }
+    });
+    assert!((prior.outcome.probability(a, 1) - 0.75).abs() < 1e-12);
+    assert!((prior.outcome.total_weight() - 4.0).abs() < 1e-12);
+}
+
+/// Budgets and limits leave the analysis incomplete, and samples repeat with their seed.
+#[test]
+fn analysis_limits_and_seeded_samples() {
+    let mut model = Model::<u16>::new();
+    let vars = model.add_vars(5, u16::range(5));
+    model.add(AllDifferent::new(vars.iter().copied()));
+    let mut solver = Solver::new(&model);
+
+    assert_eq!(
+        solver
+            .possible_values(|stats: &Stats| stats.nodes >= 3)
+            .outcome,
+        None
+    );
+    assert_eq!(
+        solver.sample(4, |_: &Stats| true).outcome,
+        Outcome::Exhausted
+    );
+    let partial = solver.marginals(10, unlimited).outcome;
+    assert!(!partial.is_exact());
+    assert_eq!(partial.solutions(), 10);
+    assert_eq!(solver.marginals(0, unlimited).outcome.solutions(), 0);
+
+    let draws: Vec<Outcome> = (0..2)
+        .map(|_| {
+            solver.set_seed(42);
+            solver.sample(1, unlimited).outcome
+        })
+        .collect();
+    assert_eq!(draws[0], draws[1], "the same seed gives the same sample");
+
+    solver.set_seed(42);
+    let distinct: std::collections::HashSet<_> = (0..20)
+        .map(|_| format!("{:?}", solver.sample(1, unlimited).outcome))
+        .collect();
+    assert!(distinct.len() > 1, "successive samples differ");
 }
