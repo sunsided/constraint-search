@@ -17,9 +17,13 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 mod domain;
+mod store;
 
 pub use domain::{BitSet, Domain, Values};
+pub use store::{Domains, Inconsistent, Var};
 
 /// A constraint that removes values from variable domains.
 ///
