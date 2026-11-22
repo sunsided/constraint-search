@@ -19,15 +19,21 @@
 
 extern crate alloc;
 
+mod all_different;
 mod domain;
 mod model;
 mod propagator;
 mod store;
+mod table;
+#[cfg(test)]
+mod testing;
 
+pub use all_different::AllDifferent;
 pub use domain::{BitSet, Domain, Values};
 pub use model::Model;
 pub use propagator::Propagator;
 pub use store::{Domains, Inconsistent, Var};
+pub use table::Table;
 
 /// Doctests for the code examples in README.md (not part of the API).
 #[cfg(doctest)]
