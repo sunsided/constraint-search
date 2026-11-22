@@ -23,6 +23,7 @@ mod all_different;
 mod domain;
 mod model;
 mod propagator;
+mod rule;
 mod store;
 mod table;
 #[cfg(test)]
@@ -32,6 +33,7 @@ pub use all_different::AllDifferent;
 pub use domain::{BitSet, Domain, Values};
 pub use model::Model;
 pub use propagator::Propagator;
+pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;
 
