@@ -24,6 +24,10 @@ exclude = [
     "rustfmt.toml",
 ]
 
+[features]
+## Parallel search on several threads; needs `std`.
+parallel = []
+
 [dependencies]
 search-core = { version = "0.3.0", default-features = false }
 

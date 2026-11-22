@@ -33,6 +33,21 @@ pub struct Stats {
     pub solutions: u64,
 }
 
+impl Stats {
+    /// The counters of `self` and `other` added up, for searches made of several parts.
+    #[cfg_attr(
+        not(feature = "parallel"),
+        expect(dead_code, reason = "only parallel search sums counters")
+    )]
+    pub(crate) fn plus(self, other: Self) -> Self {
+        Self {
+            nodes: self.nodes + other.nodes,
+            failures: self.failures + other.failures,
+            solutions: self.solutions + other.solutions,
+        }
+    }
+}
+
 /// How a search ended.
 ///
 /// `T` is the solution: the value of every variable for a [`Solver`], the chosen rows for an

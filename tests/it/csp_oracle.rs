@@ -97,6 +97,18 @@ impl Csp {
             "sliced solutions of {self:?}"
         );
 
+        #[cfg(feature = "parallel")]
+        {
+            let parallel = constraint_search::ParallelSolver::new(model, 3);
+            let count = parallel.count(u64::MAX, unlimited).outcome;
+            assert_eq!(count, Count::Exact(expected), "parallel count of {self:?}");
+            match parallel.solve(unlimited).outcome {
+                Outcome::Solved(values) => assert!(solutions.contains(&values), "{self:?}"),
+                Outcome::Unsatisfiable => assert!(solutions.is_empty(), "{self:?}"),
+                Outcome::Exhausted => panic!("an unlimited budget never runs out"),
+            }
+        }
+
         match solver.solve(unlimited).outcome {
             Outcome::Solved(values) => assert!(solutions.contains(&values), "{self:?}"),
             Outcome::Unsatisfiable => assert!(solutions.is_empty(), "{self:?}"),

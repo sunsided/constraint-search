@@ -19,7 +19,7 @@ pub enum VarOrder {
 
 impl VarOrder {
     /// The variable to branch on, or `None` if every variable is fixed.
-    pub(super) fn pick<D: Domain>(self, domains: &Domains<D>) -> Option<Var> {
+    pub(crate) fn pick<D: Domain>(self, domains: &Domains<D>) -> Option<Var> {
         let mut unfixed = domains.vars().filter(|&var| domains[var].len() > 1);
         match self {
             Self::Mrv => unfixed.min_by_key(|&var| domains[var].len()),

@@ -226,3 +226,24 @@ fn rules_stall_on_hard_puzzle() {
     assert!(!trace.solved);
     assert_eq!(trace.grade(), None);
 }
+
+/// A parallel uniqueness check agrees with the sequential one on a hard puzzle.
+#[cfg(feature = "parallel")]
+#[test]
+fn parallel_uniqueness_check() {
+    use constraint_search::ParallelSolver;
+
+    let sudoku = Sudoku::new(3);
+    let clues = sudoku.solver_for(ESCARGOT).domains().clone();
+    let mut model = Model::new();
+    for var in clues.vars() {
+        model.add_var(clues[var]);
+    }
+
+    for group in &sudoku.groups {
+        model.add(AllDifferent::new(group.iter().copied()));
+    }
+
+    let report = ParallelSolver::new(&model, 4).count(2, unlimited);
+    assert_eq!(report.outcome, Count::Exact(1));
+}

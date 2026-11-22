@@ -75,7 +75,9 @@ as a hint, and the most expensive rule a solve needed grades the puzzle.
 [`HiddenSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.HiddenSubset.html
 [`Intersection`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Intersection.html
 
-The crate is `no_std` and needs `alloc`. Its one dependency is
+The crate is `no_std` and needs `alloc`. The `parallel` feature (which needs `std`) adds
+`ParallelSolver`: the search tree split across threads, or a portfolio of branching
+heuristics racing each other, stopping all threads at the first solution or a count limit. Its one dependency is
 [search-core](https://github.com/sunsided/search-core), for the `Budget` trait.
 
 ## Minimum supported Rust version
