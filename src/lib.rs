@@ -15,6 +15,7 @@
 //! Repository: <https://github.com/sunsided/constraint-search>
 
 #![no_std]
+#![forbid(unsafe_code)]
 
 /// A constraint that removes values from variable domains.
 ///
