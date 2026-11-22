@@ -5,6 +5,12 @@
 # Keep an existing Taskfile's file name (Taskfile.yml etc.); merge these tasks into it.
 version: '3'
 
+includes:
+  fuzz:
+    taskfile: fuzz/Taskfile.dist.yaml
+    dir: fuzz
+    optional: true
+
 vars:
   # Prefer cargo-nextest when installed; fall back to cargo test.
   NEXTEST:
@@ -26,9 +32,10 @@ tasks:
     silent: true
 
   build:
-    desc: Build all targets in the workspace
+    desc: Build all targets in the workspace, then the fuzz targets
     cmds:
       - cargo build --workspace --all-targets --all-features {{.CLI_ARGS}}
+      - task: fuzz:build
 
   build:no-std:
     desc: Build the library for a bare-metal target (NO_STD_TARGET)
@@ -38,7 +45,7 @@ tasks:
       - sh: rustup target list --installed | grep -qx '{{.NO_STD_TARGET}}'
         msg: "target missing - rustup target add {{.NO_STD_TARGET}}"
     cmds:
-      # The crate is no_std without alloc; a bare-metal build catches any std or alloc use.
+      # The crate is no_std with alloc; a bare-metal build catches any std use.
       - cargo build --lib --target {{.NO_STD_TARGET}} --all-features
 
   test:
@@ -50,6 +57,14 @@ tasks:
         if: '[ "{{.NEXTEST}}" = "no" ]'
       - task: test:doc
 
+  test:prop:
+    desc: Run property tests with a high case count (PROPTEST_CASES, default 10000)
+    env:
+      PROPTEST_CASES: '{{.PROPTEST_CASES | default "10000"}}'
+    cmds:
+      # A nested `task` process inherits env; `task: test` would not.
+      - task test
+
   test:doc:
     desc: Run doctests (nextest does not run them; skipped for binary-only crates)
     aliases: [test:docs]
@@ -58,9 +73,10 @@ tasks:
         if: '[ "{{.HAS_LIB}}" = "yes" ]'
 
   fmt:
-    desc: Format all Rust sources
+    desc: Format all Rust sources, the fuzz crate included
     cmds:
       - cargo fmt --all
+      - task: fuzz:fmt
 
   fmt:check:
     desc: Check formatting without modifying files
@@ -188,9 +204,12 @@ tasks:
       - task: deny
       - task: msrv
       - task: build:no-std
+      - task: fuzz:build
+      - task: fuzz:lint
 
   clean:
-    desc: Remove build output
+    desc: Remove build output, including fuzz builds (keeps fuzz corpora and crash artifacts)
     cmds:
       - cargo clean
+      - task: fuzz:clean
       - rm -f lcov.info

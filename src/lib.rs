@@ -5,84 +5,87 @@
 //!
 //! ## Scope
 //!
-//! - Finite-domain variables with bitset domains and a trail for undoing changes on backtrack
-//! - Propagators run to a fixpoint, including all-different with Hall-set reasoning
-//! - Pluggable inference rules ordered by cost, for human-style solving and difficulty grading
-//! - Backtracking search with variable and value ordering heuristics under a budget
+//! - Finite-domain variables with bitset domains ([`Domain`]) and a trail for undoing changes
+//!   on backtrack ([`Domains`])
+//! - Propagators run to a fixpoint ([`Propagator`]), including all-different with complete
+//!   Hall-set reasoning ([`AllDifferent`]) and constraints given by their allowed tuples
+//!   ([`Table`])
+//! - Pluggable inference rules ordered by cost, for human-style solving, hints and difficulty
+//!   grading ([`Rules`])
+//! - Backtracking search with variable and value ordering heuristics under a
+//!   [`search_core::Budget`] ([`Solver`])
 //! - Solution counting with early stop, for checking that a puzzle has a unique solution
-//! - Exact cover with dancing links
+//!   ([`Solver::count`])
+//! - Exact cover with dancing links ([`ExactCover`])
+//!
+//! ## Overview
+//!
+//! ```mermaid
+//! flowchart LR
+//!     model[Model: variables, propagators] --> solver[Solver: domains, trail, queue]
+//!     solver -->|solve, count| search[backtracking + propagation]
+//!     domains[Domains] --> rules[Rules: costed deductions]
+//!     rules --> trace[Trace: steps, grade]
+//! ```
+//!
+//! A [`Model`] holds the variables and constraints and is shared read-only; it is
+//! `Send + Sync`. A [`Solver`] borrows it, owns the working state and reuses it across
+//! solves, which suits generators that check uniqueness thousands of times. [`Rules`] work on
+//! any [`Domains`] and explain a solve step by step instead.
+//!
+//! Domains are bitsets: `u16`, `u32`, `u64` and `u128` hold up to their bit width in values,
+//! and [`BitSet`] holds more.
+//!
+//! ## Example
+//!
+//! Colour a map of four regions with three colours, so that neighbours differ:
+//!
+//! ```
+//! use constraint_search::{AllDifferent, Domain, Model, Outcome, Solver, Stats};
+//!
+//! let mut model = Model::<u16>::new();
+//! let [a, b, c, d] = [(); 4].map(|()| model.add_var(u16::range(3)));
+//! for pair in [[a, b], [a, c], [b, c], [b, d], [c, d]] {
+//!     model.add(AllDifferent::new(pair));
+//! }
+//!
+//! let report = Solver::new(&model).solve(|_: &Stats| false);
+//! let Outcome::Solved(colours) = report.outcome else { panic!("three colours suffice") };
+//! assert_eq!(colours[0], colours[3]); // a and d must share a colour
+//! ```
+//!
+//! The crate is `no_std` and needs `alloc`.
 //!
 //! Repository: <https://github.com/sunsided/constraint-search>
 
 #![no_std]
 #![forbid(unsafe_code)]
 
-/// A constraint that removes values from variable domains.
-///
-/// A propagator reads the current domains, removes every value it can prove impossible and
-/// reports whether it changed anything, so that propagation can run to a fixpoint.
-pub trait Propagator<Domains> {
-    /// Prunes `domains`; returns `Some(true)` if a domain shrank, `Some(false)` if nothing
-    /// changed and `None` if the constraint can no longer be satisfied.
-    fn propagate(&mut self, domains: &mut Domains) -> Option<bool>;
-}
+extern crate alloc;
+
+mod all_different;
+mod domain;
+mod exact_cover;
+mod model;
+mod propagator;
+mod rule;
+mod search;
+mod store;
+mod table;
+#[cfg(test)]
+mod testing;
+
+pub use all_different::AllDifferent;
+pub use domain::{BitSet, Domain, Values};
+pub use exact_cover::ExactCover;
+pub use model::Model;
+pub use propagator::Propagator;
+pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
+pub use search::{Count, Outcome, Report, Solver, Stats, Status, ValueOrder, VarOrder};
+pub use store::{Domains, Inconsistent, Var};
+pub use table::Table;
 
 /// Doctests for the code examples in README.md (not part of the API).
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 mod readme_doctests {}
-
-/// Unit tests for the `Propagator` trait, through a minimal implementation.
-#[cfg(test)]
-mod tests {
-    use super::Propagator;
-
-    /// `x != y` over two variables; bit `v` of a domain is set while the variable may take `v`.
-    struct NotEqual;
-
-    impl Propagator<[u16; 2]> for NotEqual {
-        fn propagate(&mut self, domains: &mut [u16; 2]) -> Option<bool> {
-            let mut changed = false;
-
-            for (fixed, other) in [(0, 1), (1, 0)] {
-                let value = domains[fixed];
-
-                if value.is_power_of_two() && domains[other] & value != 0 {
-                    domains[other] &= !value;
-                    changed = true;
-                }
-            }
-
-            if domains.contains(&0) {
-                None
-            } else {
-                Some(changed)
-            }
-        }
-    }
-
-    /// Runs `propagator` until it changes nothing, the way a solver drives it.
-    fn fixpoint<D, P: Propagator<D>>(propagator: &mut P, domains: &mut D) -> Option<u32> {
-        let mut rounds = 0;
-        while propagator.propagate(domains)? {
-            rounds += 1;
-        }
-
-        Some(rounds)
-    }
-
-    /// A fixed variable removes its value from the other domain, then propagation settles.
-    #[test]
-    fn fixed_value_is_pruned_until_fixpoint() {
-        let mut domains = [1 << 3, 1 << 3 | 1 << 5];
-        assert_eq!(fixpoint(&mut NotEqual, &mut domains), Some(1));
-        assert_eq!(domains, [1 << 3, 1 << 5]);
-    }
-
-    /// Two variables fixed to the same value empty a domain, which is a conflict.
-    #[test]
-    fn equal_fixed_values_conflict() {
-        let mut domains = [1 << 2, 1 << 2];
-        assert_eq!(fixpoint(&mut NotEqual, &mut domains), None);
-    }
-}

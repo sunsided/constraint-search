@@ -25,6 +25,7 @@ exclude = [
 ]
 
 [dependencies]
+search-core = { version = "0.3.0", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -47,3 +48,6 @@ cognitive_complexity = "warn"
 [lints.rustdoc]
 broken_intra_doc_links = "deny"
 private_intra_doc_links = "allow"
+
+[dev-dependencies]
+proptest = "1.11.0"
