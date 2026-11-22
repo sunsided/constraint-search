@@ -173,6 +173,7 @@ impl<D: Domain> Solver<'_, D> {
             &mut self.values,
             &mut self.scores,
         );
+        self.prefer_hint(var, start);
         self.frames.push(Frame {
             var,
             start,
@@ -182,6 +183,18 @@ impl<D: Domain> Solver<'_, D> {
 
         self.phase = Phase::Advance;
         None
+    }
+
+    /// Moves the hinted value of `var`, if it is among the values from `start` on, to the
+    /// front, keeping the others in order.
+    fn prefer_hint(&mut self, var: Var, start: usize) {
+        let Some(&hinted) = self.hint.get(var.index()) else {
+            return;
+        };
+
+        if let Some(offset) = self.values[start..].iter().position(|&v| v == hinted) {
+            self.values[start..=start + offset].rotate_right(1);
+        }
     }
 
     /// Tries the next value of the innermost node; a refuted value is undone at once.
