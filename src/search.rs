@@ -5,6 +5,7 @@
 //! choice; a conflict undoes the choice through the trail.
 
 mod order;
+mod walk;
 
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
@@ -14,6 +15,8 @@ use search_core::Budget;
 use crate::propagator::Engine;
 use crate::{Domain, Domains, Inconsistent, Model};
 pub use order::{ValueOrder, VarOrder};
+pub use walk::Progress;
+use walk::{Frame, Phase};
 
 /// Counters collected during one search.
 ///
@@ -79,6 +82,11 @@ pub struct Report<T> {
 /// initial domains without reallocating. Search leaves the domains as it found them, so a
 /// caller can fix some variables ([`Solver::domains_mut`]) and search many times from there.
 ///
+/// [`Solver::solve`], [`Solver::count`] and [`Solver::for_each_solution`] run one search to
+/// its end or budget. For time slicing, [`Solver::begin`] starts a search that
+/// [`Solver::resume`] continues a little at a time, pausing at each solution or when its
+/// budget runs out.
+///
 /// The model is only borrowed and is `Sync`, so threads can each run a solver over one model.
 /// Fixing different variables per solver splits the search tree into independent subtrees,
 /// and differing [`VarOrder`]s and [`ValueOrder`]s make a portfolio. A shared stop flag goes
@@ -134,6 +142,12 @@ pub struct Solver<'m, D> {
     values: Vec<u32>,
     /// Scratch for [`ValueOrder::Lcv`]: how many values each candidate leaves, and the value.
     scores: Vec<(u64, u32)>,
+    /// The open nodes of the search in progress, root first.
+    frames: Vec<Frame>,
+    /// The next step of the search in progress.
+    phase: Phase,
+    /// The trail level of the domains when the search began.
+    base_level: usize,
     /// How to pick the variable to branch on.
     var_order: VarOrder,
     /// How to order the values of that variable.
@@ -151,6 +165,9 @@ impl<'m, D: Domain> Solver<'m, D> {
             engine: Engine::new(model),
             values: Vec::new(),
             scores: Vec::new(),
+            frames: Vec::new(),
+            phase: Phase::Idle,
+            base_level: 0,
             var_order: VarOrder::default(),
             value_order: ValueOrder::default(),
         };
@@ -173,8 +190,10 @@ impl<'m, D: Domain> Solver<'m, D> {
         self
     }
 
-    /// Returns to the model's initial domains, keeping every allocation.
+    /// Returns to the model's initial domains, keeping every allocation. Abandons a search in
+    /// progress.
     pub fn reset(&mut self) {
+        self.abandon();
         self.domains.reset_to(self.model.initial_domains());
     }
 
@@ -184,8 +203,10 @@ impl<'m, D: Domain> Solver<'m, D> {
         &self.domains
     }
 
-    /// The current domains, to fix or restrict variables before a search.
+    /// The current domains, to fix or restrict variables before a search. Abandons a search
+    /// in progress, which owns the domains until it completes.
     pub fn domains_mut(&mut self) -> &mut Domains<D> {
+        self.abandon();
         &mut self.domains
     }
 
@@ -195,11 +216,19 @@ impl<'m, D: Domain> Solver<'m, D> {
     ///
     /// Returns [`Inconsistent`] if the constraints cannot be satisfied. The domains are then
     /// partly propagated; [`Solver::reset`] starts over.
+    ///
+    /// Abandons a search in progress first, since that search owns the domains.
     pub fn propagate(&mut self) -> Result<(), Inconsistent> {
+        self.abandon();
         self.engine.fixpoint(self.model, &mut self.domains)
     }
 
     /// Finds one solution.
+    ///
+    /// Like [`Solver::count`] and [`Solver::for_each_solution`], this runs a search of its own
+    /// from the current domains: it abandons a search in progress (see [`Solver::begin`]),
+    /// which restores the domains to where that search began, and leaves them as it found
+    /// them.
     pub fn solve(&mut self, budget: impl Budget<Stats>) -> Report<Outcome> {
         let mut found = None;
         let report = self.for_each_solution(budget, |domains| {
@@ -224,8 +253,11 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// A limit of 2 decides uniqueness: `Count::Exact(1)` means exactly one solution, and
     /// `Count::AtLeast(2)` more than one. A limit of 0 searches nothing and reports
     /// `Count::AtLeast(0)`.
+    ///
+    /// Abandons a search in progress, as [`Solver::solve`] does.
     pub fn count(&mut self, limit: u64, budget: impl Budget<Stats>) -> Report<Count> {
         if limit == 0 {
+            self.abandon();
             return Report {
                 outcome: Count::AtLeast(0),
                 stats: Stats::default(),
@@ -256,140 +288,32 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// Calls `on_solution` with the domains of every solution, each holding one value per
     /// variable, until it returns [`ControlFlow::Break`] or the search ends.
     ///
-    /// The domains are as they were before the call when it returns.
+    /// Abandons a search in progress first, as [`Solver::solve`] does, which restores the
+    /// domains to where that search began. When this call returns, the domains are as they
+    /// were after that.
     pub fn for_each_solution(
         &mut self,
-        budget: impl Budget<Stats>,
-        on_solution: impl FnMut(&Domains<D>) -> ControlFlow<()>,
+        mut budget: impl Budget<Stats>,
+        mut on_solution: impl FnMut(&Domains<D>) -> ControlFlow<()>,
     ) -> Report<Status> {
-        let mut search = Search {
-            solver: self,
-            budget,
-            on_solution,
-            stats: Stats::default(),
-        };
+        let mut stats = Stats::default();
+        self.begin();
 
-        let outcome = search.root();
-        Report {
-            outcome,
-            stats: search.stats,
-        }
-    }
-}
-
-/// Why a search stopped before exhausting its space.
-enum Stop {
-    /// The solution callback asked to stop.
-    Caller,
-    /// The budget ran out.
-    Budget,
-}
-
-/// One running search: the solver, its budget and callback, and the counters so far.
-struct Search<'s, 'm, D, B, F> {
-    /// The solver whose domains are searched.
-    solver: &'s mut Solver<'m, D>,
-    /// Decides when to stop early.
-    budget: B,
-    /// Receives each solution.
-    on_solution: F,
-    /// The counters so far.
-    stats: Stats,
-}
-
-impl<D, B, F> Search<'_, '_, D, B, F>
-where
-    D: Domain,
-    B: Budget<Stats>,
-    F: FnMut(&Domains<D>) -> ControlFlow<()>,
-{
-    /// Propagates the starting domains, searches below them and restores them.
-    fn root(&mut self) -> Status {
-        let solver = &mut *self.solver;
-        solver.domains.push_level();
-
-        let status = if solver
-            .engine
-            .fixpoint(solver.model, &mut solver.domains)
-            .is_err()
-        {
-            self.stats.nodes += 1;
-            Status::Complete
-        } else {
-            match self.node() {
-                ControlFlow::Continue(()) => Status::Complete,
-                ControlFlow::Break(Stop::Caller) => Status::Stopped,
-                ControlFlow::Break(Stop::Budget) => Status::Exhausted,
+        let outcome = loop {
+            match self.run(&mut budget, &mut stats) {
+                Progress::Solution => {
+                    if on_solution(&self.domains).is_break() {
+                        break Status::Stopped;
+                    }
+                }
+                Progress::Paused => break Status::Exhausted,
+                Progress::Complete => break Status::Complete,
             }
         };
 
-        self.solver.domains.pop_level();
-        self.solver.values.clear();
-        status
+        self.abandon();
+        Report { outcome, stats }
     }
-
-    /// Searches below the current, propagated domains.
-    fn node(&mut self) -> ControlFlow<Stop> {
-        // Consult the budget before charging the node, so `nodes` counts nodes examined.
-        if self.budget.exhausted(&self.stats) {
-            return ControlFlow::Break(Stop::Budget);
-        }
-
-        self.stats.nodes += 1;
-
-        let solver = &*self.solver;
-        let Some(var) = solver.var_order.pick(&solver.domains) else {
-            self.stats.solutions += 1;
-            return (self.on_solution)(&self.solver.domains).map_break(|()| Stop::Caller);
-        };
-
-        let solver = &mut *self.solver;
-        let start = solver.values.len();
-        self.stats.failures += solver.value_order.order(
-            var,
-            solver.model,
-            &mut solver.domains,
-            &mut solver.engine,
-            &mut solver.values,
-            &mut solver.scores,
-        );
-
-        for index in start..self.solver.values.len() {
-            let value = self.solver.values[index];
-            self.branch(var, value)?;
-        }
-
-        self.solver.values.truncate(start);
-        ControlFlow::Continue(())
-    }
-
-    /// Tries `var = value` and searches below it, then undoes it.
-    fn branch(&mut self, var: crate::Var, value: u32) -> ControlFlow<Stop> {
-        let solver = &mut *self.solver;
-        solver.domains.push_level();
-
-        let result = if assign_and_propagate(solver, var, value).is_ok() {
-            self.node()
-        } else {
-            self.stats.failures += 1;
-            ControlFlow::Continue(())
-        };
-
-        self.solver.domains.pop_level();
-        result
-    }
-}
-
-/// Fixes `var` to `value` and propagates the consequences.
-fn assign_and_propagate<D: Domain>(
-    solver: &mut Solver<'_, D>,
-    var: crate::Var,
-    value: u32,
-) -> Result<(), Inconsistent> {
-    solver.domains.assign(var, value)?;
-    solver
-        .engine
-        .propagate_changes(solver.model, &mut solver.domains)
 }
 
 /// Compile-time check that solvers can move to other threads.
@@ -404,7 +328,7 @@ const _: () = {
 mod tests {
     use core::ops::ControlFlow;
 
-    use super::{Count, Outcome, Solver, Stats, Status};
+    use super::{Count, Outcome, Progress, Solver, Stats, Status};
     use crate::{AllDifferent, Domain, Model};
 
     /// Three variables over three values, all different: six solutions.
@@ -455,6 +379,60 @@ mod tests {
 
         assert_eq!(report.outcome, Count::AtLeast(4));
         assert_eq!(report.stats.solutions, 4);
+    }
+
+    /// Abandoning, resetting or editing the domains ends a search and restores the domains.
+    #[test]
+    fn abandoning_restores_domains() {
+        let model = permutations();
+        let mut solver = Solver::new(&model);
+        assert_eq!(solver.resume(|_: &Stats| false).outcome, Progress::Complete);
+
+        solver.begin();
+        assert_eq!(solver.resume(|_: &Stats| false).outcome, Progress::Solution);
+        assert!(solver.is_searching());
+        assert!(solver.domains().is_solved());
+
+        solver.abandon();
+        assert!(!solver.is_searching());
+        assert!(!solver.domains().is_solved());
+
+        solver.begin();
+        let _ = solver.resume(|_: &Stats| false);
+        let _ = solver.domains_mut();
+        assert!(!solver.is_searching());
+        assert_eq!(solver.domains().level(), 0);
+    }
+
+    /// Changes the search makes, its root propagation included, are undone however it ends,
+    /// and one-shot searches start afresh.
+    #[test]
+    fn searches_never_leak_changes() {
+        let model = permutations();
+        let mut solver = Solver::new(&model);
+        let x = crate::Var::new(0);
+
+        solver.begin();
+        solver.domains_mut().assign(x, 1).unwrap();
+        solver.begin();
+        while solver.resume(|_: &Stats| false).outcome != Progress::Complete {}
+        assert_eq!(solver.domains()[x], 0b010);
+        assert_eq!(solver.domains().level(), 0);
+
+        solver.begin();
+        let _ = solver.resume(|_: &Stats| false);
+        solver.propagate().unwrap();
+        assert!(!solver.is_searching());
+
+        solver.begin();
+        let _ = solver.resume(|_: &Stats| false);
+        let report = solver.count(u64::MAX, |_: &Stats| false);
+        assert_eq!(report.outcome, Count::Exact(2));
+        assert!(!solver.is_searching());
+
+        solver.begin();
+        let _ = solver.count(0, |_: &Stats| false);
+        assert!(!solver.is_searching());
     }
 
     /// Enumeration reports whether the callback or the search space ended it.

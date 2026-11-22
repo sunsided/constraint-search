@@ -9,7 +9,7 @@ use std::ops::ControlFlow;
 
 use constraint_search::{
     AllDifferent, Count, Domain, Domains, HiddenSubset, Intersection, Model, NakedSubset, Outcome,
-    Rules, Solver, Stats, Table, Var,
+    Progress, Rules, Solver, Stats, Table, Var,
 };
 
 /// The number of values each variable may take at most: domains are subsets of `0..VALUES`.
@@ -91,6 +91,11 @@ impl Csp {
         });
         found.sort();
         assert_eq!(found, solutions, "solutions of {self:?}");
+        assert_eq!(
+            sliced(&mut solver),
+            solutions,
+            "sliced solutions of {self:?}"
+        );
 
         match solver.solve(unlimited).outcome {
             Outcome::Solved(values) => assert!(solutions.contains(&values), "{self:?}"),
@@ -178,6 +183,23 @@ impl Csp {
             })
             .collect()
     }
+}
+
+/// Every solution, by a resumable search paused after every two nodes, sorted.
+fn sliced(solver: &mut Solver<'_, u16>) -> Vec<Vec<u32>> {
+    let mut found = Vec::new();
+    solver.begin();
+    loop {
+        match solver.resume(|stats: &Stats| stats.nodes >= 2).outcome {
+            Progress::Solution => found.push(solver.domains().solution().unwrap()),
+            Progress::Paused => {}
+            Progress::Complete => break,
+        }
+    }
+
+    assert!(!solver.is_searching());
+    found.sort();
+    found
 }
 
 /// A budget that never stops the search.
