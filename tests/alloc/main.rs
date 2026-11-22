@@ -7,7 +7,7 @@ use std::alloc::System;
 use std::ops::ControlFlow;
 
 use constraint_search::{
-    AllDifferent, Count, Domain, Model, Outcome, Solver, Stats, Table, ValueOrder, Var,
+    AllDifferent, Count, Domain, Model, Outcome, Progress, Solver, Stats, Table, ValueOrder, Var,
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
@@ -81,6 +81,14 @@ fn warmed_up_solves_do_not_allocate() {
         let _ = lcv.for_each_solution(unlimited, |_| ControlFlow::Continue(()));
     });
     assert_eq!(ordered, 0, "least-constraining-value enumeration");
+
+    let mut sliced = Solver::new(&model);
+    let resumed = allocations_after_warm_up(|| {
+        load(&mut sliced, ESCARGOT);
+        sliced.begin();
+        while sliced.resume(|stats: &Stats| stats.nodes >= 5).outcome != Progress::Complete {}
+    });
+    assert_eq!(resumed, 0, "resumable search in slices");
 
     let mut cages = Model::<u16>::new();
     let vars = cages.add_vars(4, u16::range(4));

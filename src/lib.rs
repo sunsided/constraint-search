@@ -13,7 +13,8 @@
 //! - Pluggable inference rules ordered by cost, for human-style solving, hints and difficulty
 //!   grading ([`Rules`])
 //! - Backtracking search with variable and value ordering heuristics under a
-//!   [`search_core::Budget`] ([`Solver`])
+//!   [`search_core::Budget`], resumable so the work can be spread over time ([`Solver`],
+//!   [`Solver::resume`])
 //! - Solution counting with early stop, for checking that a puzzle has a unique solution
 //!   ([`Solver::count`])
 //! - Exact cover with dancing links ([`ExactCover`])
@@ -81,7 +82,7 @@ pub use exact_cover::ExactCover;
 pub use model::Model;
 pub use propagator::Propagator;
 pub use rule::{HiddenSubset, Intersection, NakedSubset, Rule, Rules, Step, Trace};
-pub use search::{Count, Outcome, Report, Solver, Stats, Status, ValueOrder, VarOrder};
+pub use search::{Count, Outcome, Progress, Report, Solver, Stats, Status, ValueOrder, VarOrder};
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;
 

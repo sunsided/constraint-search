@@ -17,7 +17,8 @@ Finite-domain constraint satisfaction in Rust: variables with small domains, con
   constraints given by their allowed tuples
 - Pluggable inference rules ordered by cost, for human-style solving, hints and difficulty
   grading
-- Backtracking search with variable and value ordering heuristics under a budget
+- Backtracking search with variable and value ordering heuristics under a budget, resumable
+  so the work can be spread across frames or ticks
 - Solution counting with early stop, for checking that a puzzle has a unique solution
 - Exact cover with dancing links
 
