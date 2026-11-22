@@ -249,11 +249,19 @@ impl<'m, D: Domain> Solver<'m, D> {
     ///
     /// Returns [`Inconsistent`] if the constraints cannot be satisfied. The domains are then
     /// partly propagated; [`Solver::reset`] starts over.
+    ///
+    /// Abandons a search in progress first, since that search owns the domains.
     pub fn propagate(&mut self) -> Result<(), Inconsistent> {
+        self.abandon();
         self.engine.fixpoint(self.model, &mut self.domains)
     }
 
     /// Finds one solution.
+    ///
+    /// Like [`Solver::count`] and [`Solver::for_each_solution`], this runs a search of its own
+    /// from the current domains: it abandons a search in progress (see [`Solver::begin`]),
+    /// which restores the domains to where that search began, and leaves them as it found
+    /// them.
     pub fn solve(&mut self, budget: impl Budget<Stats>) -> Report<Outcome> {
         let mut found = None;
         let report = self.for_each_solution(budget, |domains| {
@@ -278,8 +286,11 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// A limit of 2 decides uniqueness: `Count::Exact(1)` means exactly one solution, and
     /// `Count::AtLeast(2)` more than one. A limit of 0 searches nothing and reports
     /// `Count::AtLeast(0)`.
+    ///
+    /// Abandons a search in progress, as [`Solver::solve`] does.
     pub fn count(&mut self, limit: u64, budget: impl Budget<Stats>) -> Report<Count> {
         if limit == 0 {
+            self.abandon();
             return Report {
                 outcome: Count::AtLeast(0),
                 stats: Stats::default(),
@@ -310,7 +321,9 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// Calls `on_solution` with the domains of every solution, each holding one value per
     /// variable, until it returns [`ControlFlow::Break`] or the search ends.
     ///
-    /// The domains are as they were before the call when it returns.
+    /// Abandons a search in progress first, as [`Solver::solve`] does, which restores the
+    /// domains to where that search began. When this call returns, the domains are as they
+    /// were after that.
     pub fn for_each_solution(
         &mut self,
         mut budget: impl Budget<Stats>,
@@ -452,6 +465,37 @@ mod tests {
     fn short_hint_panics() {
         let model = permutations();
         Solver::new(&model).set_hint(&[0]);
+    }
+
+    /// Changes the search makes, its root propagation included, are undone however it ends,
+    /// and one-shot searches start afresh.
+    #[test]
+    fn searches_never_leak_changes() {
+        let model = permutations();
+        let mut solver = Solver::new(&model);
+        let x = crate::Var::new(0);
+
+        solver.begin();
+        solver.domains_mut().assign(x, 1).unwrap();
+        solver.begin();
+        while solver.resume(|_: &Stats| false).outcome != Progress::Complete {}
+        assert_eq!(solver.domains()[x], 0b010);
+        assert_eq!(solver.domains().level(), 0);
+
+        solver.begin();
+        let _ = solver.resume(|_: &Stats| false);
+        solver.propagate().unwrap();
+        assert!(!solver.is_searching());
+
+        solver.begin();
+        let _ = solver.resume(|_: &Stats| false);
+        let report = solver.count(u64::MAX, |_: &Stats| false);
+        assert_eq!(report.outcome, Count::Exact(2));
+        assert!(!solver.is_searching());
+
+        solver.begin();
+        let _ = solver.count(0, |_: &Stats| false);
+        assert!(!solver.is_searching());
     }
 
     /// Enumeration reports whether the callback or the search space ended it.
