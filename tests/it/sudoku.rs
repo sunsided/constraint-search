@@ -1,8 +1,8 @@
 //! Sudoku as all-different groups: solving, uniqueness and solver reuse.
 
 use constraint_search::{
-    AllDifferent, Count, Domain, HiddenSubset, Intersection, Model, NakedSubset, Outcome, Rules,
-    Solver, Stats, ValueOrder, Var, VarOrder,
+    AllDifferent, Count, Domain, GroupIntersection, Model, Outcome, Rules, Solver, Stats,
+    ValueOrder, ValueSubset, Var, VarOrder, VariableSubset,
 };
 
 use crate::unlimited;
@@ -51,13 +51,13 @@ impl Sudoku {
     pub fn rules(&self) -> Rules<u32> {
         let mut rules = Rules::new();
         rules
-            .add(NakedSubset::new(1, 1, self.groups.clone()))
-            .add(HiddenSubset::new(1, 2, self.groups.clone()))
-            .add(Intersection::new(3, self.groups.clone()))
-            .add(NakedSubset::new(2, 4, self.groups.clone()))
-            .add(HiddenSubset::new(2, 5, self.groups.clone()))
-            .add(NakedSubset::new(3, 6, self.groups.clone()))
-            .add(HiddenSubset::new(3, 7, self.groups.clone()));
+            .add(VariableSubset::new(1, 1, self.groups.clone()))
+            .add(ValueSubset::new(1, 2, self.groups.clone()))
+            .add(GroupIntersection::new(3, self.groups.clone()))
+            .add(VariableSubset::new(2, 4, self.groups.clone()))
+            .add(ValueSubset::new(2, 5, self.groups.clone()))
+            .add(VariableSubset::new(3, 6, self.groups.clone()))
+            .add(ValueSubset::new(3, 7, self.groups.clone()));
 
         rules
     }

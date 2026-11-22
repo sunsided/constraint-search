@@ -13,16 +13,16 @@ Finite-domain constraint satisfaction in Rust: variables with small domains, con
 ## Scope
 
 - Finite-domain variables with bitset domains and a trail for undoing changes on backtrack
-- Propagators run to a fixpoint, including all-different with complete Hall-set reasoning and
-  constraints given by their allowed tuples
-- Pluggable inference rules ordered by cost, for human-style solving, hints and difficulty
-  grading
+- Propagators run to a fixpoint, including all-different with complete Hall-set reasoning,
+  constraints given by their allowed tuples, weighted sums and nonogram lines
+- Pluggable inference rules ordered by cost, for human-style solving, hints, explanations and
+  difficulty grading
 - Backtracking search with variable and value ordering heuristics under a budget, resumable
   so the work can be spread across frames or ticks
 - Solution counting with early stop, for checking that a puzzle has a unique solution
 - Exact cover with dancing links
 
-Typical uses are logic puzzles (Sudoku and its variants, nonograms, KenKen), map colouring, timetabling and small scheduling problems. Adversarial games belong in [game-tree-search](https://github.com/sunsided/game-tree-search), and path finding in [heuristic-search](https://github.com/sunsided/heuristic-search).
+Typical uses are logic puzzles (Sudoku and its variants, nonograms, KenKen, Kakuro, logic grids, cryptarithms), Minesweeper and card-location deduction, map colouring, timetabling and small scheduling problems. Adversarial games belong in [game-tree-search](https://github.com/sunsided/game-tree-search), and path finding in [heuristic-search](https://github.com/sunsided/heuristic-search).
 
 ## Usage
 
@@ -60,20 +60,23 @@ assert_eq!(report.outcome, Outcome::Solved(vec![0, 2, 1, 2, 1, 0, 1, 0, 2]));
 # Ok::<(), constraint_search::Inconsistent>(())
 ```
 
-Custom constraints implement [`Propagator`]; [`Table`] lists allowed tuples for small ones.
-For human-style solving, [`Rules`] applies costed techniques ([`NakedSubset`],
-[`HiddenSubset`], [`Intersection`] or your own [`Rule`]), cheapest first. Each step can serve
+Custom constraints implement [`Propagator`]; [`Table`] lists allowed tuples for small ones,
+and [`Linear`] and [`Line`] cover sums and nonogram clues.
+For human-style solving, [`Rules`] applies costed techniques ([`VariableSubset`],
+[`ValueSubset`], [`GroupIntersection`] or your own [`Rule`]), cheapest first. Each step can serve
 as a hint, and the most expensive rule a solve needed grades the puzzle.
 
 [`Model`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Model.html
 [`Solver`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Solver.html
 [`Propagator`]: https://docs.rs/constraint-search/latest/constraint_search/trait.Propagator.html
 [`Table`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Table.html
+[`Linear`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Linear.html
+[`Line`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Line.html
 [`Rules`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Rules.html
 [`Rule`]: https://docs.rs/constraint-search/latest/constraint_search/trait.Rule.html
-[`NakedSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.NakedSubset.html
-[`HiddenSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.HiddenSubset.html
-[`Intersection`]: https://docs.rs/constraint-search/latest/constraint_search/struct.Intersection.html
+[`VariableSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.VariableSubset.html
+[`ValueSubset`]: https://docs.rs/constraint-search/latest/constraint_search/struct.ValueSubset.html
+[`GroupIntersection`]: https://docs.rs/constraint-search/latest/constraint_search/struct.GroupIntersection.html
 
 The crate is `no_std` and needs `alloc`. The `parallel` feature (which needs `std`) adds
 `ParallelSolver`: the search tree split across threads, or a portfolio of branching

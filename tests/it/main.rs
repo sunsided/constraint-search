@@ -1,5 +1,6 @@
 //! Integration tests: whole puzzles modelled through the public API.
 
+mod beyond;
 mod cover_oracle;
 mod csp_oracle;
 mod props;
