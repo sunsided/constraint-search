@@ -6,16 +6,28 @@
 //! reads like a person's, and the most expensive rule it needed grades the puzzle.
 //!
 //! The crate ships rules for all-different groups: [`VariableSubset`], [`ValueSubset`] and
-//! [`GroupIntersection`]. Puzzle-specific patterns implement [`Rule`] themselves.
+//! [`GroupIntersection`]. [`PropagatorRule`] turns any propagator into a rule, which covers
+//! sums ([`Linear`](crate::Linear)), nonogram lines ([`Line`](crate::Line)) and tables, and
+//! [`SumDifference`] combines overlapping sums.
+//! Puzzle-specific patterns implement [`Rule`] themselves. [`Trace::why_removed`] answers
+//! "why can `x` not be `v`?" from the steps.
+//!
+//! Rules stay sound when a problem has many solutions, as in card games or under-constrained
+//! puzzles. Only rules with [`Rule::assumes_unique`] need exactly one solution, and they are
+//! off by default.
 
+mod difference;
 mod intersection;
+mod propagated;
 mod subset;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::{Domain, Domains, Inconsistent, Var};
+pub use difference::SumDifference;
 pub use intersection::GroupIntersection;
+pub use propagated::PropagatorRule;
 pub use subset::{ValueSubset, VariableSubset};
 
 /// A named deduction technique with a cost.
@@ -65,6 +77,38 @@ pub struct Trace<D> {
     pub steps: Vec<Step<D>>,
     /// `true` if every variable ended with exactly one value.
     pub solved: bool,
+}
+
+impl<D: Domain> Trace<D> {
+    /// The step that removed `value` from `var`, if one did: the explanation of why `var`
+    /// cannot take `value`. Name the rule with [`Rules::get`] on [`Step::rule`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use constraint_search::{Domain, Domains, Rules, VariableSubset};
+    ///
+    /// let mut domains = Domains::<u16>::new();
+    /// let x = domains.add(u16::singleton(1));
+    /// let y = domains.add(u16::range(3));
+    ///
+    /// let mut rules = Rules::new();
+    /// rules.add(VariableSubset::new(1, 1, [[x, y]]));
+    /// let trace = rules.solve(&mut domains, false)?;
+    ///
+    /// let step = trace.why_removed(y, 1).expect("1 left y");
+    /// assert_eq!(rules.get(step.rule).name(), "variable single");
+    /// assert!(trace.why_removed(y, 0).is_none());
+    /// # Ok::<(), constraint_search::Inconsistent>(())
+    /// ```
+    #[must_use]
+    pub fn why_removed(&self, var: Var, value: u32) -> Option<&Step<D>> {
+        self.steps.iter().find(|step| {
+            step.removed
+                .iter()
+                .any(|&(removed_var, values)| removed_var == var && values.contains(value))
+        })
+    }
 }
 
 impl<D> Trace<D> {

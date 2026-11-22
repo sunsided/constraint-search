@@ -8,8 +8,9 @@
 use std::ops::ControlFlow;
 
 use constraint_search::{
-    AllDifferent, Count, Domain, Domains, GroupIntersection, Model, Outcome, Progress, Rules,
-    Solver, Stats, Table, ValueSubset, Var, VariableSubset,
+    AllDifferent, Count, Domain, Domains, GroupIntersection, Line, Linear, Model, Outcome,
+    Progress, PropagatorRule, Relation, Rules, Solver, Stats, SumDifference, Table, ValueSubset,
+    Var, VariableSubset,
 };
 
 /// The number of values each variable may take at most: domains are subsets of `0..VALUES`.
@@ -23,6 +24,10 @@ pub enum Constraint {
     /// The variables take one of the tuples, each one value per variable. Never lists a
     /// variable twice.
     Table(Vec<usize>, Vec<Vec<u32>>),
+    /// `Σ coefficient · value (relation) rhs` over the `(coefficient, variable)` terms.
+    Linear(Vec<(i64, usize)>, Relation, i64),
+    /// The cells, in order, are 0 or 1 and hold the runs of 1s. Never lists a cell twice.
+    Line(Vec<usize>, Vec<usize>),
 }
 
 impl Constraint {
@@ -40,8 +45,48 @@ impl Constraint {
                     .zip(tuple)
                     .all(|(&var, &v)| assignment[var] == v)
             }),
+            Self::Linear(terms, relation, rhs) => {
+                let sum: i64 = terms
+                    .iter()
+                    .map(|&(a, var)| a * i64::from(assignment[var]))
+                    .sum();
+                match relation {
+                    Relation::AtMost => sum <= *rhs,
+                    Relation::Equal => sum == *rhs,
+                    Relation::AtLeast => sum >= *rhs,
+                }
+            }
+            Self::Line(cells, runs) => {
+                let values: Vec<u32> = cells.iter().map(|&cell| assignment[cell]).collect();
+                runs_of(&values).as_ref() == Some(runs)
+            }
         }
     }
+}
+
+/// The runs of 1s in `cells`, if every cell is 0 or 1.
+fn runs_of(cells: &[u32]) -> Option<Vec<usize>> {
+    let mut runs = Vec::new();
+    let mut current = 0;
+    for &cell in cells {
+        match cell {
+            1 => current += 1,
+            0 => {
+                if current > 0 {
+                    runs.push(current);
+                }
+
+                current = 0;
+            }
+            _ => return None,
+        }
+    }
+
+    if current > 0 {
+        runs.push(current);
+    }
+
+    Some(runs)
 }
 
 /// A small constraint problem in plain data, so an oracle can enumerate it.
@@ -126,6 +171,10 @@ impl Csp {
         }
 
         rules.add(GroupIntersection::new(0, groups));
+        rules.add(PropagatorRule::new("sums", 0, self.linears()));
+        rules.add(SumDifference::new(0, self.linears()));
+        rules.add(PropagatorRule::new("lines", 0, self.lines()));
+        rules.add(PropagatorRule::new("tables", 0, self.tables()));
 
         let mut domains = Domains::new();
         for &domain in &self.domains {
@@ -175,26 +224,81 @@ impl Csp {
                 Constraint::AllDifferent(scope) => {
                     model.add(AllDifferent::new(scope.iter().map(|&i| vars[i])));
                 }
-                Constraint::Table(scope, tuples) => {
-                    model.add(Table::new(scope.iter().map(|&i| vars[i]), tuples));
-                }
+                Constraint::Table(..) | Constraint::Linear(..) | Constraint::Line(..) => {}
             }
+        }
+
+        for table in self.tables() {
+            model.add(table);
+        }
+
+        for linear in self.linears() {
+            model.add(linear);
+        }
+
+        for line in self.lines() {
+            model.add(line);
         }
 
         model
     }
 
-    /// The scopes of the all-different constraints, which the rules reason over.
-    fn groups(&self) -> Vec<Vec<Var>> {
-        let var = |i: &usize| Var::new(u32::try_from(*i).unwrap());
+    /// The table constraints, as crate constraints.
+    fn tables(&self) -> Vec<Table> {
         self.constraints
             .iter()
             .filter_map(|constraint| match constraint {
-                Constraint::AllDifferent(scope) => Some(scope.iter().map(var).collect()),
-                Constraint::Table(..) => None,
+                Constraint::Table(scope, tuples) => {
+                    Some(Table::new(scope.iter().map(|&i| var(i)), tuples))
+                }
+                _ => None,
             })
             .collect()
     }
+
+    /// The linear constraints, as crate constraints.
+    fn linears(&self) -> Vec<Linear> {
+        self.constraints
+            .iter()
+            .filter_map(|constraint| match constraint {
+                Constraint::Linear(terms, relation, rhs) => Some(Linear::new(
+                    terms.iter().map(|&(a, i)| (a, var(i))),
+                    *relation,
+                    *rhs,
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The nonogram lines, as crate constraints.
+    fn lines(&self) -> Vec<Line> {
+        self.constraints
+            .iter()
+            .filter_map(|constraint| match constraint {
+                Constraint::Line(cells, runs) => {
+                    Some(Line::new(cells.iter().map(|&i| var(i)), runs.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The scopes of the all-different constraints, which the rules reason over.
+    fn groups(&self) -> Vec<Vec<Var>> {
+        self.constraints
+            .iter()
+            .filter_map(|constraint| match constraint {
+                Constraint::AllDifferent(scope) => Some(scope.iter().map(|&i| var(i)).collect()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// The crate variable for index `i`.
+fn var(i: usize) -> Var {
+    Var::new(u32::try_from(i).unwrap())
 }
 
 /// Every solution, by a resumable search paused after every two nodes, sorted.

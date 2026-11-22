@@ -8,10 +8,11 @@
 //! - Finite-domain variables with bitset domains ([`Domain`]) and a trail for undoing changes
 //!   on backtrack ([`Domains`])
 //! - Propagators run to a fixpoint ([`Propagator`]), including all-different with complete
-//!   Hall-set reasoning ([`AllDifferent`]) and constraints given by their allowed tuples
-//!   ([`Table`])
-//! - Pluggable inference rules ordered by cost, for human-style solving, hints and difficulty
-//!   grading ([`Rules`])
+//!   Hall-set reasoning ([`AllDifferent`]), constraints given by their allowed tuples
+//!   ([`Table`]), weighted sums ([`Linear`]) and nonogram lines ([`Line`])
+//! - Pluggable inference rules ordered by cost, for human-style solving, hints, explanations
+//!   ("why can `x` not be `v`?") and difficulty grading ([`Rules`]), for all-different groups,
+//!   sums and any propagator ([`PropagatorRule`])
 //! - Backtracking search with variable and value ordering heuristics under a
 //!   [`search_core::Budget`], resumable so the work can be spread over time ([`Solver`],
 //!   [`Solver::resume`])
@@ -69,6 +70,8 @@ extern crate alloc;
 mod all_different;
 mod domain;
 mod exact_cover;
+mod line;
+mod linear;
 mod model;
 #[cfg(feature = "parallel")]
 mod parallel;
@@ -83,11 +86,16 @@ mod testing;
 pub use all_different::{AllDifferent, MatchingScratch};
 pub use domain::{BitSet, Domain, Values};
 pub use exact_cover::ExactCover;
+pub use line::{EMPTY, FILLED, Line, LineScratch};
+pub use linear::{Linear, Relation};
 pub use model::Model;
 #[cfg(feature = "parallel")]
 pub use parallel::ParallelSolver;
 pub use propagator::Propagator;
-pub use rule::{GroupIntersection, Rule, Rules, Step, Trace, ValueSubset, VariableSubset};
+pub use rule::{
+    GroupIntersection, PropagatorRule, Rule, Rules, Step, SumDifference, Trace, ValueSubset,
+    VariableSubset,
+};
 pub use search::{Count, Outcome, Progress, Report, Solver, Stats, Status, ValueOrder, VarOrder};
 pub use store::{Domains, Inconsistent, Var};
 pub use table::Table;

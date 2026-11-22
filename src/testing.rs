@@ -101,3 +101,66 @@ fn enumerate(
         enumerate(domains, assignment, depth + 1, visit);
     }
 }
+
+/// Like [`check_against_brute_force`], for propagators that need not be complete: asserts
+/// that propagation (run to its own fixpoint, as the engine does) keeps every supported
+/// value, fails only when nothing satisfies `check`, and accepts a full assignment only if
+/// it satisfies `check`.
+pub(crate) fn check_sound_against_brute_force<P: Propagator<u16>>(
+    rng: &mut Rng,
+    vars: usize,
+    values: u32,
+    check: impl Fn(&[u32]) -> bool,
+    make: impl Fn(Vec<Var>) -> P,
+) {
+    let mut domains = Domains::<u16>::new();
+    let scope: Vec<Var> = (0..vars).map(|_| domains.add(rng.domain(values))).collect();
+    let before: Vec<u16> = scope.iter().map(|&var| domains[var]).collect();
+    let supported = supports(&before, &check);
+
+    let result = to_fixpoint(&make(scope.clone()), &mut domains, &scope);
+
+    if result.is_err() {
+        assert!(
+            supported.iter().all(|&d| d == 0),
+            "refuted solvable {before:?}"
+        );
+        return;
+    }
+
+    for (&var, &support) in scope.iter().zip(&supported) {
+        assert!(
+            support.is_subset(domains[var]),
+            "removed a solution value of {before:?}"
+        );
+    }
+
+    let fixed: Option<Vec<u32>> = scope.iter().map(|&var| domains.value(var)).collect();
+    if let Some(assignment) = fixed {
+        assert!(
+            check(&assignment),
+            "accepted violating {assignment:?} from {before:?}"
+        );
+    }
+}
+
+/// Runs `propagator` until it changes none of `scope`, as the engine re-runs a propagator
+/// that changed its own variables.
+fn to_fixpoint<P: Propagator<u16>>(
+    propagator: &P,
+    domains: &mut Domains<u16>,
+    scope: &[Var],
+) -> Result<(), Inconsistent> {
+    let mut scratch = P::Scratch::default();
+    loop {
+        let before: Vec<u16> = scope.iter().map(|&var| domains[var]).collect();
+        propagator.propagate(domains, &mut scratch)?;
+        if scope
+            .iter()
+            .zip(&before)
+            .all(|(&var, &old)| domains[var] == old)
+        {
+            return Ok(());
+        }
+    }
+}

@@ -8,10 +8,13 @@ use proptest::prelude::*;
 use proptest::sample::subsequence;
 
 use crate::cover_oracle::Cover;
+use constraint_search::Relation;
+
 use crate::csp_oracle::{Constraint, Csp, VALUES};
 
-/// A constraint over some of the variables `0..vars`: all-different over any subset, or a
-/// table over up to three variables with up to eight tuples.
+/// A constraint over some of the variables `0..vars`: all-different over any subset, a table
+/// over up to three variables with up to eight tuples, a linear constraint over up to three,
+/// or a nonogram line over any subset with up to two runs.
 fn constraint(vars: usize) -> impl Strategy<Value = Constraint> {
     let all_different =
         subsequence((0..vars).collect::<Vec<_>>(), 1..=vars).prop_map(Constraint::AllDifferent);
@@ -22,7 +25,24 @@ fn constraint(vars: usize) -> impl Strategy<Value = Constraint> {
                 .prop_map(move |tuples| Constraint::Table(scope.clone(), tuples))
         });
 
-    prop_oneof![all_different, table]
+    let linear = (
+        subsequence((0..vars).collect::<Vec<_>>(), 1..=vars.min(3)),
+        vec(-3..=3_i64, 3),
+        0..3_usize,
+        -8..=16_i64,
+    )
+        .prop_map(|(scope, coefficients, relation, rhs)| {
+            let terms = coefficients.into_iter().zip(scope).collect();
+            let relation = [Relation::AtMost, Relation::Equal, Relation::AtLeast][relation];
+            Constraint::Linear(terms, relation, rhs)
+        });
+    let line = (
+        subsequence((0..vars).collect::<Vec<_>>(), 1..=vars),
+        vec(1..=3_usize, 0..=2),
+    )
+        .prop_map(|(cells, runs)| Constraint::Line(cells, runs));
+
+    prop_oneof![all_different, table, linear, line]
 }
 
 /// A problem of one to five variables over `0..VALUES` with up to four constraints.
