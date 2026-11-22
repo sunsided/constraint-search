@@ -49,12 +49,7 @@ impl AllDifferent {
     pub fn new(vars: impl IntoIterator<Item = Var>) -> Self {
         let vars: Vec<Var> = vars.into_iter().collect();
 
-        let mut sorted = vars.clone();
-        sorted.sort_unstable();
-        assert!(
-            sorted.windows(2).all(|pair| pair[0] != pair[1]),
-            "all-different lists a variable twice"
-        );
+        crate::assert_distinct(&vars, "all-different lists a variable twice");
 
         Self { vars }
     }

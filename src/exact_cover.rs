@@ -10,6 +10,7 @@ use core::ops::ControlFlow;
 
 use search_core::Budget;
 
+use crate::search::{count_up_to, first_solution};
 use crate::{Count, Outcome, Report, Stats, Status};
 
 /// An exact cover problem: columns to cover and rows that each cover some of them.
@@ -107,16 +108,11 @@ impl ExactCover {
     /// Panics if a column is out of range or listed twice.
     pub fn add_row(&mut self, columns: &[usize]) -> usize {
         let count = self.sizes.len() - 1;
-        let mut sorted = columns.to_vec();
-        sorted.sort_unstable();
         assert!(
-            sorted.iter().all(|&column| column < count),
+            columns.iter().all(|&column| column < count),
             "column out of range"
         );
-        assert!(
-            sorted.windows(2).all(|pair| pair[0] != pair[1]),
-            "a row lists a column twice"
-        );
+        crate::assert_distinct(columns, "a row lists a column twice");
 
         let row = self.rows;
         let first = self.nodes.len();
@@ -157,55 +153,20 @@ impl ExactCover {
 
     /// One solution: the chosen rows in ascending order.
     pub fn solve(&mut self, budget: impl Budget<Stats>) -> Report<Outcome<Vec<usize>>> {
-        let mut found = None;
-        let report = self.for_each_solution(budget, |rows| {
-            let mut rows = rows.to_vec();
-            rows.sort_unstable();
-            found = Some(rows);
-            ControlFlow::Break(())
-        });
-
-        let outcome = match (report.outcome, found) {
-            (_, Some(rows)) => Outcome::Solved(rows),
-            (Status::Exhausted, None) => Outcome::Exhausted,
-            (_, None) => Outcome::Unsatisfiable,
-        };
-
-        Report {
-            outcome,
-            stats: report.stats,
-        }
+        first_solution(|found| {
+            self.for_each_solution(budget, |rows| {
+                let mut rows = rows.to_vec();
+                rows.sort_unstable();
+                *found = Some(rows);
+                ControlFlow::Break(())
+            })
+        })
     }
 
     /// Counts solutions, stopping at `limit`; a limit of 2 decides uniqueness. A limit of 0
     /// searches nothing and reports `Count::AtLeast(0)`.
     pub fn count(&mut self, limit: u64, budget: impl Budget<Stats>) -> Report<Count> {
-        if limit == 0 {
-            return Report {
-                outcome: Count::AtLeast(0),
-                stats: Stats::default(),
-            };
-        }
-
-        let mut solutions = 0;
-        let report = self.for_each_solution(budget, |_| {
-            solutions += 1;
-            if solutions >= limit {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        });
-
-        let outcome = match report.outcome {
-            Status::Complete => Count::Exact(solutions),
-            Status::Stopped | Status::Exhausted => Count::AtLeast(solutions),
-        };
-
-        Report {
-            outcome,
-            stats: report.stats,
-        }
+        count_up_to(limit, |tally| self.for_each_solution(budget, |_| tally()))
     }
 
     /// Calls `on_solution` with the rows of every solution, in the order they were chosen,

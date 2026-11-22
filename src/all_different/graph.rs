@@ -55,9 +55,7 @@ pub struct MatchingScratch {
 impl MatchingScratch {
     /// Builds the graph of `vars` over their current domains.
     pub(super) fn build<D: Domain>(&mut self, domains: &Domains<D>, vars: &[Var]) {
-        let union = vars
-            .iter()
-            .fold(D::empty(), |union, &var| union.union(domains[var]));
+        let union = domains.union_of(vars);
         self.values.clear();
         self.values.extend(union.values());
 

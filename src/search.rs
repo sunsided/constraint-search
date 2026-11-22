@@ -277,22 +277,12 @@ impl<'m, D: Domain> Solver<'m, D> {
     /// which restores the domains to where that search began, and leaves them as it found
     /// them.
     pub fn solve(&mut self, budget: impl Budget<Stats>) -> Report<Outcome> {
-        let mut found = None;
-        let report = self.for_each_solution(budget, |domains| {
-            found = domains.solution();
-            ControlFlow::Break(())
-        });
-
-        let outcome = match (report.outcome, found) {
-            (_, Some(values)) => Outcome::Solved(values),
-            (Status::Exhausted, None) => Outcome::Exhausted,
-            (_, None) => Outcome::Unsatisfiable,
-        };
-
-        Report {
-            outcome,
-            stats: report.stats,
-        }
+        first_solution(|found| {
+            self.for_each_solution(budget, |domains| {
+                *found = domains.solution();
+                ControlFlow::Break(())
+            })
+        })
     }
 
     /// Counts solutions, stopping at `limit`.
@@ -303,33 +293,9 @@ impl<'m, D: Domain> Solver<'m, D> {
     ///
     /// Abandons a search in progress, as [`Solver::solve`] does.
     pub fn count(&mut self, limit: u64, budget: impl Budget<Stats>) -> Report<Count> {
-        if limit == 0 {
-            self.abandon();
-            return Report {
-                outcome: Count::AtLeast(0),
-                stats: Stats::default(),
-            };
-        }
-
-        let mut solutions = 0;
-        let report = self.for_each_solution(budget, |_| {
-            solutions += 1;
-            if solutions >= limit {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        });
-
-        let outcome = match report.outcome {
-            Status::Complete => Count::Exact(solutions),
-            Status::Stopped | Status::Exhausted => Count::AtLeast(solutions),
-        };
-
-        Report {
-            outcome,
-            stats: report.stats,
-        }
+        // Even a zero limit, which searches nothing, abandons the search in progress.
+        self.abandon();
+        count_up_to(limit, |tally| self.for_each_solution(budget, |_| tally()))
     }
 
     /// Calls `on_solution` with the domains of every solution, each holding one value per
@@ -360,6 +326,62 @@ impl<'m, D: Domain> Solver<'m, D> {
 
         self.abandon();
         Report { outcome, stats }
+    }
+}
+
+/// Runs `enumerate`, which stores the first solution it meets in `found` and stops there,
+/// and turns what it stored into an [`Outcome`]. Shared by [`Solver::solve`] and
+/// [`ExactCover::solve`](crate::ExactCover::solve).
+pub(crate) fn first_solution<T>(
+    enumerate: impl FnOnce(&mut Option<T>) -> Report<Status>,
+) -> Report<Outcome<T>> {
+    let mut found = None;
+    let report = enumerate(&mut found);
+
+    let outcome = match (report.outcome, found) {
+        (_, Some(solution)) => Outcome::Solved(solution),
+        (Status::Exhausted, None) => Outcome::Exhausted,
+        (_, None) => Outcome::Unsatisfiable,
+    };
+
+    Report {
+        outcome,
+        stats: report.stats,
+    }
+}
+
+/// Runs `enumerate`, which calls the tally it is given once per solution and stops when the
+/// tally breaks, and counts up to `limit` solutions. A zero limit does not run `enumerate`.
+/// Shared by [`Solver::count`] and [`ExactCover::count`](crate::ExactCover::count).
+pub(crate) fn count_up_to(
+    limit: u64,
+    enumerate: impl FnOnce(&mut dyn FnMut() -> ControlFlow<()>) -> Report<Status>,
+) -> Report<Count> {
+    if limit == 0 {
+        return Report {
+            outcome: Count::AtLeast(0),
+            stats: Stats::default(),
+        };
+    }
+
+    let mut solutions = 0;
+    let report = enumerate(&mut || {
+        solutions += 1;
+        if solutions >= limit {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+
+    let outcome = match report.outcome {
+        Status::Complete => Count::Exact(solutions),
+        Status::Stopped | Status::Exhausted => Count::AtLeast(solutions),
+    };
+
+    Report {
+        outcome,
+        stats: report.stats,
     }
 }
 

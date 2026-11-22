@@ -87,7 +87,8 @@ impl<D: Domain> Solver<'_, D> {
     /// Returns [`Outcome::Unsatisfiable`] as soon as one search exhausts its space without a
     /// solution, and [`Outcome::Exhausted`] if every restart ran out of budget. With zero
     /// restarts nothing is searched, and the outcome is [`Outcome::Exhausted`]: no attempt had
-    /// any budget. Like [`Solver::solve`], this abandons a search in progress.
+    /// any budget. Like [`Solver::solve`], this abandons a search in progress. A hint set with
+    /// [`Solver::set_hint`] is ignored here and stays set afterwards.
     pub fn sample<B: Budget<Stats> + Clone>(
         &mut self,
         restarts: u32,
@@ -95,6 +96,8 @@ impl<D: Domain> Solver<'_, D> {
     ) -> Report<Outcome> {
         self.abandon();
         let order = core::mem::replace(&mut self.value_order, ValueOrder::Random);
+        // A hint would put its solution first on every restart and undo the shuffle.
+        let hint = core::mem::take(&mut self.hint);
         let mut stats = Stats::default();
         let mut outcome = Outcome::Exhausted;
 
@@ -110,6 +113,7 @@ impl<D: Domain> Solver<'_, D> {
         }
 
         self.value_order = order;
+        self.hint = hint;
         Report { outcome, stats }
     }
 

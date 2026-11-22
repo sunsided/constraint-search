@@ -251,6 +251,18 @@ fn analysis_limits_and_seeded_samples() {
         .map(|_| format!("{:?}", solver.sample(1, unlimited).outcome))
         .collect();
     assert!(distinct.len() > 1, "successive samples differ");
+
+    let hinted = [4, 3, 2, 1, 0];
+    solver.set_hint(&hinted);
+    let distinct: std::collections::HashSet<_> = (0..20)
+        .map(|_| format!("{:?}", solver.sample(1, unlimited).outcome))
+        .collect();
+    assert!(distinct.len() > 1, "a hint does not fix the sample");
+    assert_eq!(
+        solver.solve(unlimited).outcome,
+        Outcome::Solved(hinted.to_vec()),
+        "the hint stays set after sampling"
+    );
 }
 
 /// The analysis answers for the domains a paused search began from, never for that search's

@@ -145,6 +145,12 @@ impl<D: Domain> Domains<D> {
         self[var].value()
     }
 
+    /// The values that at least one of `vars` can still take.
+    pub(crate) fn union_of(&self, vars: &[Var]) -> D {
+        vars.iter()
+            .fold(D::empty(), |union, &var| union.union(self[var]))
+    }
+
     /// Returns `true` if every variable has exactly one value left.
     #[must_use]
     pub fn is_solved(&self) -> bool {
